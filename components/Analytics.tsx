@@ -68,7 +68,7 @@ const Analytics: React.FC = () => {
     }
      if (error) {
       return (
-        <div className="bg-red-900/50 border border-red-700 text-red-300 p-4 rounded-lg mt-8">
+        <div className="bg-danger/20 border border-danger text-accent-secondary p-4 rounded-lg mt-8">
           <h2 className="font-bold">Error</h2>
           <p>{error}</p>
         </div>
@@ -133,7 +133,7 @@ const Analytics: React.FC = () => {
       <h1 className="text-3xl font-bold mb-2 text-accent-primary">X Post Search</h1>
       <p className="text-text-secondary mb-8">Find recent and popular posts from across X.</p>
       
-        <form onSubmit={handleSearch} className="max-w-xl mx-auto flex gap-2 p-2 bg-bg-secondary border border-border-primary rounded-full">
+        <form onSubmit={handleSearch} className="max-w-xl mx-auto flex gap-2 p-2 bg-bg-secondary/80 backdrop-blur-sm border border-border-primary rounded-full">
             <input 
                 type="text"
                 value={query}

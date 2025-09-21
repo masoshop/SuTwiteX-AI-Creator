@@ -1,6 +1,5 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { generateTweet, generateTweetThread, proofreadThread, generateImage, generateVideo, summarizeUrl, summarizeFileContent } from '../services/geminiService';
+import { generateTweet, generateTweetThread, proofreadThread, generateImage, generateVideo, summarizeUrl, summarizeFileContent, regenerateTweet } from '../services/geminiService';
 import { CreateMode } from '../types';
 import type { Source, XUserProfile, EditableTweet, Draft } from '../types';
 import TweetPreview from './TweetPreview';
@@ -14,9 +13,9 @@ import CopyIcon from './icons/CopyIcon';
 import CheckIcon from './icons/CheckIcon';
 import TrashIcon from './icons/TrashIcon';
 import BufferIcon from './icons/BufferIcon';
+import XLogoIcon from './icons/XLogoIcon';
 import InfoIcon from './icons/InfoIcon';
 import PaperclipIcon from './icons/PaperclipIcon';
-import BufferModal from './BufferModal';
 import GenerationStatus from './GenerationStatus';
 import LoaderIcon from './icons/LoaderIcon';
 import DraftsPanel from './DraftsPanel';
@@ -46,7 +45,7 @@ const Dashboard: React.FC = () => {
   const [createMode, setCreateMode] = useState<CreateMode>(CreateMode.Text);
   const [prompt, setPrompt] = useState('');
   const [audience, setAudience] = useState('');
-  const [tweets, setTweets] = useState<EditableTweet[]>([{ id: `tweet-0`, content: '', media: null, isLoadingMedia: false, isCopied: false }]);
+  const [tweets, setTweets] = useState<EditableTweet[]>([{ id: `tweet-0`, content: '', media: null, isLoadingMedia: false, isCopied: false, isRegenerating: false }]);
   const [isLoading, setIsLoading] = useState(false);
   const [generationStatus, setGenerationStatus] = useState<{ title: string; steps: string[]; currentStep: number; error: string | null; } | null>(null);
 
@@ -62,12 +61,10 @@ const Dashboard: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mediaTargetIndex, setMediaTargetIndex] = useState<number | null>(null);
 
-  const [isBufferModalOpen, setIsBufferModalOpen] = useState(false);
-  const [bufferToken, setBufferToken] = useState<string | null>(() => localStorage.getItem('buffer-token'));
-
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [saveButtonText, setSaveButtonText] = useState('Save Draft');
   const creationPanelRef = useRef<HTMLDivElement>(null);
+  const tweetPreviewRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
     const savedDrafts = localStorage.getItem('sutwitex-drafts');
@@ -102,7 +99,13 @@ const Dashboard: React.FC = () => {
       setCreateMode(draftToLoad.createMode);
       setPrompt(draftToLoad.prompt);
       setAudience(draftToLoad.audience);
-      setTweets(draftToLoad.tweets);
+      const loadedTweets = draftToLoad.tweets.map(t => ({
+          ...t,
+          isLoadingMedia: t.isLoadingMedia || false,
+          isCopied: t.isCopied || false,
+          isRegenerating: t.isRegenerating || false,
+      }));
+      setTweets(loadedTweets);
       setLinkUrl('');
       setUploadedFile(null);
       setProofreadSuggestions([]);
@@ -115,17 +118,6 @@ const Dashboard: React.FC = () => {
     setDrafts(updatedDrafts);
     localStorage.setItem('sutwitex-drafts', JSON.stringify(updatedDrafts));
   };
-
-
-  const handleSetBufferToken = (token: string) => {
-    if (token) {
-      localStorage.setItem('buffer-token', token);
-      setBufferToken(token);
-    } else {
-      localStorage.removeItem('buffer-token');
-      setBufferToken(null);
-    }
-  };
   
   const handleTweetChange = (index: number, value: string) => {
     const newTweets = [...tweets];
@@ -134,7 +126,7 @@ const Dashboard: React.FC = () => {
   };
 
   const addTweetToThread = () => {
-    setTweets([...tweets, { id: `tweet-${Date.now()}`, content: '', media: null, isLoadingMedia: false, isCopied: false }]);
+    setTweets([...tweets, { id: `tweet-${Date.now()}`, content: '', media: null, isLoadingMedia: false, isCopied: false, isRegenerating: false }]);
   };
 
   const handleGenerate = useCallback(async (type: 'tweet' | 'thread') => {
@@ -176,10 +168,10 @@ const Dashboard: React.FC = () => {
         setGenerationStatus(prev => prev ? { ...prev, currentStep: 3 } : null);
 
         if (results.length > 0 && !results[0].startsWith("Error:")) {
-            setTweets(results.map((content, i) => ({ id: `tweet-${i}`, content, media: null, isLoadingMedia: false, isCopied: false })));
+            setTweets(results.map((content, i) => ({ id: `tweet-${i}`, content, media: null, isLoadingMedia: false, isCopied: false, isRegenerating: false })));
         } else {
             const errorMessage = results[0] || 'Empty response from AI.';
-            setTweets([{ id: `tweet-0`, content: `Error: ${errorMessage}`, media: null, isLoadingMedia: false, isCopied: false }]);
+            setTweets([{ id: `tweet-0`, content: `Error: ${errorMessage}`, media: null, isLoadingMedia: false, isCopied: false, isRegenerating: false }]);
             setGenerationStatus(prev => prev ? { ...prev, currentStep: steps.length, error: errorMessage } : null);
         }
     } catch (error) {
@@ -230,68 +222,83 @@ const Dashboard: React.FC = () => {
   }
 
   const handleGenerateMedia = useCallback(async (type: 'image' | 'video', mediaPrompt: string, tweetIndex: number) => {
-      let currentTweets = [...tweets];
-      currentTweets[tweetIndex] = { ...currentTweets[tweetIndex], isLoadingMedia: true, media: null };
-      setTweets(currentTweets);
-      setIsLoading(true);
-      
-      try {
-          if (type === 'image') {
-              const steps = ['Composing prompt', 'Generating pixels', 'Rendering image', 'Done!'];
-              setGenerationStatus({ title: 'Generating Image...', steps, currentStep: 0, error: null });
-              setTimeout(() => setGenerationStatus(prev => prev ? { ...prev, currentStep: 1 } : null), 1000);
+    // Ensure the target tweet is in view before starting.
+    tweetPreviewRefs.current[tweetIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  
+    setTweets(prevTweets => {
+        const newTweets = [...prevTweets];
+        newTweets[tweetIndex] = { ...newTweets[tweetIndex], isLoadingMedia: true, media: null };
+        return newTweets;
+    });
+    setIsLoading(true);
+    
+    try {
+        if (type === 'image') {
+            const steps = ['Composing prompt', 'Generating pixels', 'Rendering image', 'Done!'];
+            setGenerationStatus({ title: 'Generating Image...', steps, currentStep: 0, error: null });
+            setTimeout(() => setGenerationStatus(prev => prev ? { ...prev, currentStep: 1 } : null), 1000);
 
-              const mediaUrl = await generateImage(mediaPrompt);
-              
-              setGenerationStatus(prev => prev ? { ...prev, currentStep: 2 } : null);
-              setTweets(prevTweets => {
-                const finalTweets = [...prevTweets];
-                finalTweets[tweetIndex] = { ...finalTweets[tweetIndex], media: { type, url: mediaUrl } };
-                return finalTweets;
+            const mediaUrl = await generateImage(mediaPrompt);
+            
+            setGenerationStatus(prev => prev ? { ...prev, currentStep: 2 } : null);
+            setTweets(prevTweets => {
+              const finalTweets = [...prevTweets];
+              finalTweets[tweetIndex] = { ...finalTweets[tweetIndex], media: { type, url: mediaUrl } };
+              return finalTweets;
+            });
+            setGenerationStatus(prev => prev ? { ...prev, currentStep: 3 } : null);
+
+        } else {
+            const videoSteps = ['Starting up', 'AI processing', 'Generating frames', 'Finalizing video', 'Done!'];
+            setGenerationStatus({ title: 'Generating Video...', steps: videoSteps, currentStep: 0, error: null });
+
+            const onProgress = (message: string) => {
+              setGenerationStatus(prevStatus => {
+                  if (!prevStatus) return null;
+                  let currentStep = prevStatus.currentStep;
+                  let error: string | null = null;
+                  if (message.includes('🚀')) currentStep = 0;
+                  else if (message.includes('🤖')) currentStep = 1;
+                  else if (message.includes('⏳')) currentStep = 2;
+                  else if (message.includes('✅')) currentStep = 3;
+                  else if (message.includes('🎉')) currentStep = 4;
+                  else if (message.toLowerCase().includes('error:')) {
+                      error = message.replace('Error: ', '');
+                      currentStep = videoSteps.length;
+                  }
+                  return { ...prevStatus, currentStep, error };
               });
-              setGenerationStatus(prev => prev ? { ...prev, currentStep: 3 } : null);
-
-          } else {
-              const videoSteps = ['Starting up', 'AI processing', 'Generating frames', 'Finalizing video', 'Done!'];
-              setGenerationStatus({ title: 'Generating Video...', steps: videoSteps, currentStep: 0, error: null });
-
-              const onProgress = (message: string) => {
-                setGenerationStatus(prevStatus => {
-                    if (!prevStatus) return null;
-                    let currentStep = prevStatus.currentStep;
-                    let error: string | null = null;
-                    if (message.includes('🚀')) currentStep = 0;
-                    else if (message.includes('🤖')) currentStep = 1;
-                    else if (message.includes('⏳')) currentStep = 2;
-                    else if (message.includes('✅')) currentStep = 3;
-                    else if (message.includes('🎉')) currentStep = 4;
-                    else if (message.toLowerCase().includes('error:')) {
-                        error = message.replace('Error: ', '');
-                        currentStep = videoSteps.length;
-                    }
-                    return { ...prevStatus, currentStep, error };
-                });
-              };
-              const mediaUrl = await generateVideo(mediaPrompt, onProgress);
-               setTweets(prevTweets => {
-                const finalTweets = [...prevTweets];
-                finalTweets[tweetIndex] = { ...finalTweets[tweetIndex], media: { type, url: mediaUrl } };
-                return finalTweets;
-              });
+            };
+            const mediaUrl = await generateVideo(mediaPrompt, onProgress);
+             setTweets(prevTweets => {
+              const finalTweets = [...prevTweets];
+              finalTweets[tweetIndex] = { ...finalTweets[tweetIndex], media: { type, url: mediaUrl } };
+              return finalTweets;
+            });
+        }
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setGenerationStatus(prev => prev ? { ...prev, error: message } : null);
+    } finally {
+        setIsLoading(false);
+        setTweets(prevTweets => {
+          const finalTweets = [...prevTweets];
+          if (finalTweets[tweetIndex]) {
+              finalTweets[tweetIndex] = { ...finalTweets[tweetIndex], isLoadingMedia: false };
           }
-      } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          setGenerationStatus(prev => prev ? { ...prev, error: message } : null);
-      } finally {
-          setIsLoading(false);
-          setTweets(prevTweets => {
-            const finalTweets = [...prevTweets];
-            finalTweets[tweetIndex] = { ...finalTweets[tweetIndex], isLoadingMedia: false };
-            return finalTweets;
+          return finalTweets;
+        });
+        setTimeout(() => setGenerationStatus(null), 5000);
+        
+        // Re-center the view on the tweet after media is loaded and state is updated.
+        setTimeout(() => {
+          tweetPreviewRefs.current[tweetIndex]?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
           });
-          setTimeout(() => setGenerationStatus(null), 5000);
-      }
-  }, [tweets]);
+        }, 100);
+    }
+  }, []);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (mediaTargetIndex === null) return;
@@ -365,6 +372,37 @@ const Dashboard: React.FC = () => {
       }, 2000);
     });
   };
+
+  const handleRegenerateTweet = async (index: number) => {
+    const originalTweet = tweets[index];
+    if (!originalTweet || originalTweet.content.trim() === '') return;
+
+    setTweets(prev => prev.map((t, i) => i === index ? { ...t, isRegenerating: true } : t));
+
+    try {
+        const regeneratedContent = await regenerateTweet(originalTweet.content);
+        
+        if (!regeneratedContent.startsWith("Error:")) {
+            setTweets(prev => prev.map((t, i) => i === index ? { ...t, content: regeneratedContent, isRegenerating: false } : t));
+        } else {
+            console.error("Regeneration failed:", regeneratedContent);
+            setTweets(prev => prev.map((t, i) => i === index ? { ...t, isRegenerating: false } : t));
+        }
+    } catch (error) {
+        console.error("Error regenerating tweet:", error);
+        setTweets(prev => prev.map((t, i) => i === index ? { ...t, isRegenerating: false } : t));
+    }
+  };
+
+  const handleDeleteTweet = (index: number) => {
+    if (tweets.length === 1) {
+      // If it's the last tweet, just clear it instead of removing it.
+      setTweets([{ id: `tweet-0`, content: '', media: null, isLoadingMedia: false, isCopied: false, isRegenerating: false }]);
+    } else {
+      // Otherwise, remove it from the thread.
+      setTweets(prevTweets => prevTweets.filter((_, i) => i !== index));
+    }
+  };
   
   const handleModeChange = (mode: CreateMode) => {
     setCreateMode(mode);
@@ -373,7 +411,24 @@ const Dashboard: React.FC = () => {
     setLinkUrl('');
     setUploadedFile(null);
     setProofreadSuggestions([]);
-    setTweets([{ id: `tweet-0`, content: '', media: null, isLoadingMedia: false, isCopied: false }]);
+    setTweets([{ id: `tweet-0`, content: '', media: null, isLoadingMedia: false, isCopied: false, isRegenerating: false }]);
+  };
+
+  const handleShare = (platform: 'x' | 'buffer') => {
+    if (tweets.every(t => t.content.trim() === '')) return;
+
+    let url = '';
+    if (platform === 'x') {
+        const text = tweets[0]?.content || '';
+        url = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}`;
+    } else if (platform === 'buffer') {
+        const fullText = tweets.map(t => t.content).join('\n\n');
+        url = `https://buffer.com/add?text=${encodeURIComponent(fullText)}`;
+    }
+
+    if (url) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+    }
   };
 
   const ModeButton: React.FC<{ mode: CreateMode; label: string; icon: React.ReactNode }> = ({ mode, label, icon }) => (
@@ -390,7 +445,10 @@ const Dashboard: React.FC = () => {
         return (
             <>
                 <div className="my-4">
-                    <button onClick={handleProofread} disabled={isProofreading || tweets.every(t => t.content.length === 0)} className="ai-button bg-green-600 hover:bg-green-700 w-full"><CheckIcon /> {isProofreading ? 'Checking...' : 'Proofread'}</button>
+                    <p className="text-sm text-center text-text-secondary mb-4">
+                        Edit your thread in the preview panel on the right, then click here to get AI-powered suggestions.
+                    </p>
+                    <button onClick={handleProofread} disabled={isProofreading || tweets.every(t => t.content.length === 0)} className="ai-button bg-success/80 hover:bg-success text-bg-primary w-full"><CheckIcon /> {isProofreading ? 'Checking...' : 'Proofread'}</button>
                     {isProofreading && <p className="text-center text-sm text-text-secondary mt-2 animate-pulse">Checking for spelling and grammar...</p>}
                 </div>
                 {proofreadSuggestions.length > 0 && (
@@ -399,7 +457,7 @@ const Dashboard: React.FC = () => {
                             <h3 className="font-bold text-text-primary">AI Suggestions</h3>
                             <div className="flex gap-2">
                                 <button onClick={() => setProofreadSuggestions([])} className="ai-button bg-gray-600 hover:bg-gray-700 px-3 py-1 text-xs">Dismiss</button>
-                                <button onClick={handleAcceptAllSuggestions} className="ai-button bg-green-600 hover:bg-green-700 px-3 py-1 text-xs">Accept All</button>
+                                <button onClick={handleAcceptAllSuggestions} className="ai-button bg-success/80 hover:bg-success text-bg-primary px-3 py-1 text-xs">Accept All</button>
                             </div>
                         </div>
                         {tweets.map((tweet, index) => {
@@ -414,7 +472,7 @@ const Dashboard: React.FC = () => {
                                  <div key={tweet.id} className="bg-bg-primary p-3 rounded-lg border border-border-primary">
                                      <p className="text-xs font-bold text-text-secondary mb-2">Tweet {index + 1}</p>
                                      <p className="text-sm text-red-400 line-through mb-1">{original}</p>
-                                     <p className="text-sm text-green-400 mb-2">{suggestion}</p>
+                                     <p className="text-sm text-success mb-2">{suggestion}</p>
                                      {!isAccepted && (
                                          <div className="text-right">
                                              <button onClick={() => handleAcceptSuggestion(index)} className="text-xs text-accent-primary hover:underline">Accept Suggestion</button>
@@ -436,7 +494,7 @@ const Dashboard: React.FC = () => {
                 <label htmlFor="linkUrl" className="text-sm font-semibold text-text-primary mb-2">Enter a URL to summarize</label>
                 <div className="flex gap-2">
                     <input id="linkUrl" type="url" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://example.com/article" className="flex-grow bg-bg-primary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition" />
-                    <button onClick={handleFetchLink} disabled={isFetchingLink || !linkUrl} className="ai-button bg-green-600 hover:bg-green-700 px-4">{isFetchingLink ? '...' : 'Fetch & Summarize'}</button>
+                    <button onClick={handleFetchLink} disabled={isFetchingLink || !linkUrl} className="ai-button bg-success/80 hover:bg-success text-bg-primary px-4">{isFetchingLink ? '...' : 'Fetch & Summarize'}</button>
                 </div>
             </div>
         )}
@@ -489,7 +547,7 @@ const Dashboard: React.FC = () => {
         accept="image/*,video/*"
       />
       {/* --- CREATION PANEL --- */}
-      <div ref={creationPanelRef} className="bg-bg-secondary p-6 rounded-xl border border-border-primary flex flex-col">
+      <div ref={creationPanelRef} className="bg-bg-secondary/80 backdrop-blur-sm p-6 rounded-xl border border-border-primary flex flex-col">
         <h1 className="text-2xl font-bold mb-4">Create a new Post</h1>
 
         {generationStatus && (
@@ -513,66 +571,60 @@ const Dashboard: React.FC = () => {
 
             <div className="flex-grow flex flex-col">
                 {renderCreationPanel()}
-            
-                <div className="space-y-4 flex-grow mt-4">
-                    {tweets.map((tweet, index) => (
-                    <div key={tweet.id} className="bg-bg-primary border border-border-primary rounded-lg p-1">
-                        <div className="relative">
-                        <textarea value={tweet.content} onChange={(e) => handleTweetChange(index, e.target.value)} placeholder={`Tweet ${index + 1}/${tweets.length}...`} className="w-full bg-transparent p-2 pr-16 focus:outline-none" rows={4} />
-                        <span className={`absolute bottom-3 right-3 text-sm ${tweet.content.length > MAX_CHARS ? 'text-accent-secondary' : 'text-text-secondary'}`}>{tweet.content.length}/{MAX_CHARS}</span>
-                        </div>
-                        <div className="mt-1 p-2 border-t border-border-primary/50 flex items-center justify-end gap-2">
-                            {tweet.isLoadingMedia && <p className="text-sm text-text-primary animate-pulse mr-auto">Generating media...</p>}
-                            <button onClick={() => handleCopy(tweet.content, index)} className="action-button w-20" title="Copy Text">{tweet.isCopied ? 'Copied!' : <CopyIcon />}</button>
-                            
-                            {!tweet.media ? (
-                                <>
-                                <button onClick={() => { setMediaTargetIndex(index); fileInputRef.current?.click(); }} className="action-button" title="Upload Media"><UploadIcon /></button>
-                                <button onClick={() => handleGenerateMedia('image', tweet.content, index)} disabled={!tweet.content || isLoading} className="action-button" title="Generate Image"><CameraIcon /></button>
-                                <button onClick={() => handleGenerateMedia('video', tweet.content, index)} disabled={!tweet.content || isLoading} className="action-button" title="Generate Video"><VideoIcon /></button>
-                                </>
-                            ) : (
-                                <>
-                                <button onClick={() => { setMediaTargetIndex(index); fileInputRef.current?.click(); }} className="action-button" title="Change Media"><UploadIcon /></button>
-                                <button onClick={() => handleRemoveMedia(index)} className="action-button !bg-red-900/70 hover:!bg-red-800/70" title="Remove Media"><TrashIcon /></button>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                    ))}
-                </div>
-
-                <button onClick={addTweetToThread} className="mt-4 text-accent-primary font-semibold hover:underline self-start disabled:cursor-not-allowed disabled:opacity-50">+ Add to Thread</button>
             </div>
         </fieldset>
-        
-        <div className="mt-6">
-             <button 
-                onClick={handleSaveDraft}
-                disabled={isLoading || saveButtonText === 'Draft Saved!'} 
-                className="w-full py-3 bg-transparent border border-accent-primary text-accent-primary rounded-full font-bold hover:bg-accent-primary/10 transition disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {saveButtonText}
-              </button>
-        </div>
       </div>
 
       {/* --- PREVIEW PANEL --- */}
       <div>
         <h2 className="text-xl font-bold mb-4">Preview</h2>
         <div className="space-y-4">
-          {tweets.map((tweet) => (
-            <TweetPreview 
-              key={tweet.id}
-              tweet={{ id: tweet.id, content: tweet.content, author: DEFAULT_USER, media: tweet.media || undefined, stats: { likes: 0, retweets: 0, impressions: 0, replies: 0 }, postedAt: new Date() }} 
-            />
+          {tweets.map((tweet, index) => (
+            // FIX: The ref callback was implicitly returning the element, which is not allowed. Changed to a block statement to ensure a 'void' return type.
+            <div key={tweet.id} ref={el => { tweetPreviewRefs.current[index] = el; }}>
+                <TweetPreview 
+                  tweet={{ 
+                    id: tweet.id, 
+                    content: tweet.content, 
+                    author: DEFAULT_USER, 
+                    media: tweet.media || undefined, 
+                    stats: { likes: 0, retweets: 0, impressions: 0, replies: 0 }, 
+                    postedAt: new Date() 
+                  }}
+                  isGenerating={isLoading}
+                  editableTweet={tweet}
+                  onCopy={() => handleCopy(tweet.content, index)}
+                  onGenerateMedia={(type) => handleGenerateMedia(type, tweet.content, index)}
+                  onUploadMedia={() => { setMediaTargetIndex(index); fileInputRef.current?.click(); }}
+                  onRemoveMedia={() => handleRemoveMedia(index)}
+                  onTweetChange={(value) => handleTweetChange(index, value)}
+                  onRegenerate={() => handleRegenerateTweet(index)}
+                  onDeleteTweet={() => handleDeleteTweet(index)}
+                />
+            </div>
           ))}
         </div>
 
-        <div className="mt-6">
+        <button onClick={addTweetToThread} className="mt-4 text-accent-primary font-semibold hover:underline self-start disabled:cursor-not-allowed disabled:opacity-50">+ Add to Thread</button>
+
+        <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
             <button 
-                onClick={() => setIsBufferModalOpen(true)}
-                className="w-full py-3 bg-accent-primary text-bg-primary rounded-full font-bold hover:opacity-90 transition flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={handleSaveDraft}
+                disabled={isLoading || saveButtonText === 'Draft Saved!'} 
+                className="w-full py-3 bg-transparent border border-accent-secondary text-accent-secondary rounded-full font-bold hover:bg-accent-secondary/10 transition disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-1"
+              >
+                {saveButtonText}
+            </button>
+            <button 
+                onClick={() => handleShare('x')}
+                className="w-full py-3 bg-bg-primary text-text-primary border border-border-primary rounded-full font-bold hover:bg-border-primary transition flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-1"
+                disabled={tweets.every(t => t.content.trim() === '') || isLoading}
+            >
+                <XLogoIcon className="h-5 w-5" /> Share on X
+            </button>
+            <button 
+                onClick={() => handleShare('buffer')}
+                className="w-full py-3 bg-accent-primary text-bg-primary rounded-full font-bold hover:bg-accent-primary/90 transition flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-1"
                 disabled={tweets.every(t => t.content.trim() === '') || isLoading}
             >
                 <BufferIcon className="h-5 w-5" /> Share on Buffer
@@ -589,26 +641,18 @@ const Dashboard: React.FC = () => {
 
       </div>
 
-      {isBufferModalOpen && (
-        <BufferModal
-          tweets={tweets}
-          onClose={() => setIsBufferModalOpen(false)}
-          token={bufferToken}
-          onSetToken={handleSetBufferToken}
-        />
-      )}
-
+      {/* FIX: Replace 'tailwind' variables with hardcoded hex colors to resolve reference errors. The color values are inferred from other components and a conventional dark theme. */}
       <style>{`
           .ai-button { display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.75rem; border-radius: 9999px; font-weight: bold; transition: all 0.2s; background-color: #5A67D8; color: white; text-align: center; white-space: nowrap; }
-          .ai-button:hover:not(:disabled) { background-color: #434190; }
+          .ai-button:hover:not(:disabled) { opacity: 0.9; }
           .ai-button:disabled { opacity: 0.5; cursor: not-allowed; }
-          .action-button { background-color: #374151; color: #E5E7EB; border-radius: 9999px; padding: 0.5rem; transition: all 0.2s; display: flex; align-items: center; justify-content: center; min-height: 36px; }
-          .action-button:hover:not(:disabled) { background-color: #4B5563; color: white; }
+          .action-button { background-color: #374151; color: white; border-radius: 9999px; padding: 0.5rem; transition: all 0.2s; display: flex; align-items: center; justify-content: center; min-height: 36px; gap: 0.5rem; font-weight: 600; font-size: 0.875rem; }
+          .action-button:hover:not(:disabled) { background-color: #374151; filter: brightness(1.2); }
           .action-button:disabled { opacity: 0.5; cursor: not-allowed; }
           .overflow-y-auto::-webkit-scrollbar { width: 8px; }
           .overflow-y-auto::-webkit-scrollbar-track { background: #1F2937; }
           .overflow-y-auto::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
-          .overflow-y-auto::-webkit-scrollbar-thumb:hover { background: #4B5563; }
+          .overflow-y-auto::-webkit-scrollbar-thumb:hover { background: #5A67D8; }
           .animate-fade-in { animation: fadeIn 0.5s ease-in-out; }
           @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
       `}</style>

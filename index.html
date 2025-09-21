@@ -11,17 +11,19 @@
         theme: {
           extend: {
             colors: {
-              'bg-primary': '#111827',
-              'bg-secondary': '#1F2937',
-              'accent-primary': '#38BDF8',
-              'accent-secondary': '#8B5CF6',
-              'text-primary': '#E5E7EB',
-              'text-secondary': '#9CA3AF',
-              'border-primary': '#374151',
+              'bg-primary': '#0B0115',
+              'bg-secondary': '#1E0A3C',
+              'accent-primary': '#48bfe3',
+              'accent-secondary': '#80ffdb',
+              'text-primary': '#F0F8FF',
+              'text-secondary': '#64dfdf',
+              'border-primary': '#3A1F78',
+              'success': '#72efdd',
+              'danger': '#7400b8',
             },
             boxShadow: {
-              'glow-blue': '0 0 15px rgba(56, 189, 248, 0.3)',
-              'glow-violet': '0 0 15px rgba(139, 92, 246, 0.3)',
+              'glow-blue': '0 0 15px rgba(72, 191, 227, 0.4)',
+              'glow-violet': '0 0 15px rgba(128, 255, 219, 0.4)',
             }
           },
         },
@@ -38,9 +40,175 @@
   }
 }
 </script>
+<style>
+  .z-negative {
+    z-index: -1;
+  }
+</style>
 </head>
   <body class="bg-bg-primary text-text-primary">
+    <canvas id="blockchain-canvas" class="fixed top-0 left-0 w-full h-full z-negative"></canvas>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
+    <script type="module">
+      const canvas = document.getElementById('blockchain-canvas');
+      const ctx = canvas.getContext('2d');
+
+      let width, height, particles, pulses;
+      const particleCount = 70;
+      const connectionDistance = 150;
+      
+      const particleColor = "#64dfdf";
+      const lineColor = "#5e60ce";
+      const pulseColor = "#48bfe3";
+
+      const mouse = {
+        x: undefined,
+        y: undefined,
+        radius: 120
+      };
+
+      window.addEventListener('mousemove', (event) => {
+        mouse.x = event.x;
+        mouse.y = event.y;
+      });
+
+      window.addEventListener('mouseout', () => {
+        mouse.x = undefined;
+        mouse.y = undefined;
+      });
+
+      function resize() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+      }
+
+      class Particle {
+        constructor() {
+          this.x = Math.random() * width;
+          this.y = Math.random() * height;
+          this.vx = (Math.random() - 0.5) * 0.3;
+          this.vy = (Math.random() - 0.5) * 0.3;
+          this.radius = Math.random() * 1.5 + 0.5;
+        }
+
+        update() {
+          // Repulsion from mouse
+          if (mouse.x !== undefined && mouse.y !== undefined) {
+              const dx = this.x - mouse.x;
+              const dy = this.y - mouse.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < mouse.radius) {
+                  const force = (mouse.radius - dist) / mouse.radius;
+                  this.vx += (dx / dist) * force * 0.15;
+                  this.vy += (dy / dist) * force * 0.15;
+              }
+          }
+
+          // Friction
+          this.vx *= 0.97;
+          this.vy *= 0.97;
+
+          // Add a little random motion to keep it alive
+          if (Math.abs(this.vx) < 0.05) this.vx += (Math.random() - 0.5) * 0.05;
+          if (Math.abs(this.vy) < 0.05) this.vy += (Math.random() - 0.5) * 0.05;
+
+          // Update position
+          this.x += this.vx;
+          this.y += this.vy;
+
+          // Wall collision
+          if (this.x < 0 || this.x > width) this.vx *= -1;
+          if (this.y < 0 || this.y > height) this.vy *= -1;
+        }
+
+        draw() {
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+          ctx.fillStyle = particleColor;
+          ctx.fill();
+        }
+      }
+
+      class Pulse {
+          constructor(source, dest) {
+              this.source = source;
+              this.dest = dest;
+              this.progress = 0;
+              this.speed = 0.015 + Math.random() * 0.01;
+          }
+
+          update() {
+              this.progress += this.speed;
+          }
+
+          draw() {
+              const x = this.source.x + (this.dest.x - this.source.x) * this.progress;
+              const y = this.source.y + (this.dest.y - this.source.y) * this.progress;
+              
+              ctx.beginPath();
+              ctx.arc(x, y, 2, 0, Math.PI * 2);
+              ctx.fillStyle = pulseColor;
+              ctx.shadowBlur = 5;
+              ctx.shadowColor = pulseColor;
+              ctx.fill();
+              ctx.shadowBlur = 0;
+          }
+      }
+
+      function init() {
+        resize();
+        particles = [];
+        pulses = [];
+        for (let i = 0; i < particleCount; i++) {
+          particles.push(new Particle());
+        }
+      }
+
+      function animate() {
+        ctx.clearRect(0, 0, width, height);
+
+        for (const particle of particles) {
+          particle.update();
+          particle.draw();
+        }
+
+        for (let i = 0; i < particles.length; i++) {
+          for (let j = i + 1; j < particles.length; j++) {
+            const dist = Math.hypot(particles[i].x - particles[j].x, particles[i].y - particles[j].y);
+            if (dist < connectionDistance) {
+              const opacity = 1 - dist / connectionDistance;
+              ctx.beginPath();
+              ctx.strokeStyle = `rgba(94, 96, 206, ${opacity * 0.5})`;
+              ctx.lineWidth = 0.5;
+              ctx.moveTo(particles[i].x, particles[i].y);
+              ctx.lineTo(particles[j].x, particles[j].y);
+              ctx.stroke();
+
+              // Occasionally create a pulse
+              if (Math.random() < 0.0005) {
+                  pulses.push(new Pulse(particles[i], particles[j]));
+              }
+            }
+          }
+        }
+
+        // Update and draw pulses
+        for (let i = pulses.length - 1; i >= 0; i--) {
+            const pulse = pulses[i];
+            pulse.update();
+            pulse.draw();
+            if (pulse.progress >= 1) {
+                pulses.splice(i, 1);
+            }
+        }
+        
+        requestAnimationFrame(animate);
+      }
+
+      window.addEventListener('resize', init);
+      init();
+      animate();
+    </script>
   </body>
 </html>

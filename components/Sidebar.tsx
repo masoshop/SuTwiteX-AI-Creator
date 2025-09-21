@@ -3,7 +3,7 @@ import React from 'react';
 import type { ViewType } from '../types';
 import HomeIcon from './icons/HomeIcon';
 import PlusCircleIcon from './icons/PlusCircleIcon';
-import XLogoIcon from './icons/XLogoIcon';
+import LogoIcon from './icons/LogoIcon';
 // FIX: Import icons for new sidebar items
 import BarChartIcon from './icons/BarChartIcon';
 import CalendarIcon from './icons/CalendarIcon';
@@ -22,29 +22,35 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView }) => {
     { id: 'analytics', icon: <BarChartIcon />, label: 'Analytics' },
   ];
 
+  const isCreateDashboardView = activeView === 'create' || activeView === 'dashboard';
+
   return (
     <div className="fixed top-0 left-0 h-full w-20 md:w-64 bg-bg-secondary border-r border-border-primary flex flex-col justify-between p-4 transition-all duration-300">
       <div>
-        <div className="mb-12 flex items-center justify-center md:justify-start">
-            <XLogoIcon className="h-8 w-8 text-accent-primary" />
+        <div className="mb-12 flex items-center justify-center md:justify-start gap-2">
+            <LogoIcon className="h-8 w-8 flex-shrink-0" />
+            <h1 className="hidden md:inline text-xl font-bold text-text-primary">SuTwiteX</h1>
         </div>
         <nav>
           <ul>
-            {navItems.map((item) => (
-              <li key={item.id} className="mb-4">
-                <button
-                  onClick={() => setActiveView(item.id as ViewType)}
-                  className={`w-full flex items-center p-3 rounded-full transition-colors duration-200 ${
-                    activeView === item.id
-                      ? 'bg-accent-primary/10 text-accent-primary'
-                      : 'text-text-primary hover:bg-bg-primary/50'
-                  }`}
-                >
-                  {item.icon}
-                  <span className="hidden md:inline ml-4 font-bold">{item.label}</span>
-                </button>
-              </li>
-            ))}
+            {navItems.map((item) => {
+              const isActive = (isCreateDashboardView && (item.id === 'dashboard' || item.id === 'create')) || activeView === item.id;
+              return (
+                <li key={item.id} className="mb-4">
+                  <button
+                    onClick={() => setActiveView(item.id as ViewType)}
+                    className={`w-full flex items-center p-3 rounded-full transition-colors duration-200 ${
+                      isActive
+                        ? 'bg-accent-primary/10 text-accent-primary'
+                        : 'text-text-primary hover:bg-bg-primary/50'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="hidden md:inline ml-4 font-bold">{item.label}</span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </nav>
       </div>

@@ -18,7 +18,7 @@ const GenerationStatus: React.FC<GenerationStatusProps> = ({ title, steps, curre
       
       <div className="w-full bg-border-primary rounded-full h-2 my-4">
         <div 
-          className={`h-2 rounded-full transition-all duration-500 ${error ? 'bg-red-500' : 'bg-accent-primary'}`} 
+          className={`h-2 rounded-full transition-all duration-500 ${error ? 'bg-danger' : 'bg-accent-primary'}`} 
           style={{ width: `${error ? 100 : progressPercentage}%` }}
         ></div>
       </div>
@@ -30,15 +30,15 @@ const GenerationStatus: React.FC<GenerationStatusProps> = ({ title, steps, curre
           const isPending = index > currentStepIndex;
 
           let statusClasses = 'text-text-secondary';
-          if (isCompleted) statusClasses = 'text-green-400';
+          if (isCompleted) statusClasses = 'text-success';
           if (isCurrent) statusClasses = 'text-accent-primary';
           
           return (
             <div key={index} className="flex items-center space-x-4">
               <div className="flex flex-col items-center">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${isCurrent ? 'border-accent-primary animate-pulse' : isCompleted ? 'border-green-500 bg-green-500/20' : 'border-border-primary'}`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${isCurrent ? 'border-accent-primary animate-pulse' : isCompleted ? 'border-success bg-success/20' : 'border-border-primary'}`}>
                   {isCompleted ? (
-                    <CheckIcon className="h-5 w-5 text-green-400" />
+                    <CheckIcon className="h-5 w-5 text-success" />
                   ) : isCurrent ? (
                     <LoaderIcon className="h-5 w-5 text-accent-primary" />
                   ) : (
@@ -46,7 +46,7 @@ const GenerationStatus: React.FC<GenerationStatusProps> = ({ title, steps, curre
                   )}
                 </div>
                 {index < steps.length - 1 && (
-                  <div className={`w-0.5 h-6 mt-1 ${isCompleted ? 'bg-green-500' : 'bg-border-primary'}`}></div>
+                  <div className={`w-0.5 h-6 mt-1 ${isCompleted ? 'bg-success' : 'bg-border-primary'}`}></div>
                 )}
               </div>
               <span className={`font-medium ${statusClasses}`}>{step}</span>
@@ -55,7 +55,7 @@ const GenerationStatus: React.FC<GenerationStatusProps> = ({ title, steps, curre
         })}
       </div>
       {error && (
-        <div className="mt-4 bg-red-900/50 border border-red-700 text-red-300 text-sm p-3 rounded-lg">
+        <div className="mt-4 bg-danger/20 border border-danger text-accent-secondary p-3 rounded-lg">
           <p><strong>Error:</strong> {error}</p>
         </div>
       )}

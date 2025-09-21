@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import XLogoIcon from './icons/XLogoIcon';
+import LogoIcon from './icons/LogoIcon';
 
 interface AuthProps {
   onSetToken: (token: string) => void;
@@ -24,7 +24,7 @@ const Auth: React.FC<AuthProps> = ({ onSetToken, error }) => {
     <div className="flex min-h-screen bg-bg-primary items-center justify-center p-4">
       <div className="w-full max-w-md bg-bg-secondary border border-border-primary rounded-lg p-8 shadow-lg">
         <div className="flex flex-col items-center mb-6">
-          <XLogoIcon className="h-10 w-10 text-accent-primary mb-4" />
+          <LogoIcon className="h-12 w-12 mb-4" />
           <h1 className="text-2xl font-bold text-white">SuTwiteX AI Creator</h1>
           <p className="text-text-secondary mt-1">Connect your account to continue</p>
         </div>

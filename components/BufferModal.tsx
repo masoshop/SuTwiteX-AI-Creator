@@ -120,7 +120,7 @@ const BufferModal: React.FC<BufferModalProps> = ({ tweets, onClose, token, onSet
 
   const renderSuccessView = () => (
     <div className="text-center">
-        <CheckIcon className="h-10 w-10 mx-auto text-green-500 bg-green-500/10 rounded-full p-2 mb-4" />
+        <CheckIcon className="h-10 w-10 mx-auto text-success bg-success/10 rounded-full p-2 mb-4" />
         <h3 className="text-lg font-bold">Post Sent to Buffer!</h3>
         <p className="text-sm text-text-secondary">Closing this window...</p>
     </div>
@@ -129,7 +129,7 @@ const BufferModal: React.FC<BufferModalProps> = ({ tweets, onClose, token, onSet
   const renderCopyThreadView = () => (
      <div>
         <div className="text-center mb-4">
-            <CheckIcon className="h-8 w-8 mx-auto text-green-500 bg-green-500/10 rounded-full p-1.5" />
+            <CheckIcon className="h-8 w-8 mx-auto text-success bg-success/10 rounded-full p-1.5" />
             <h3 className="text-lg font-bold mt-2">First Tweet Sent!</h3>
             <p className="text-sm text-text-secondary">Copy the rest of your thread below and paste into the Buffer composer.</p>
         </div>
@@ -160,7 +160,7 @@ const BufferModal: React.FC<BufferModalProps> = ({ tweets, onClose, token, onSet
     if (postStatus === 'error' && profiles.length === 0) {
         return (
             <div className="text-center">
-                <p className="text-red-400 mb-4">{error}</p>
+                <p className="text-danger mb-4">{error}</p>
                 <button onClick={() => onSetToken('')} className="text-sm text-accent-primary hover:underline">
                     Use a different token
                 </button>
@@ -199,7 +199,7 @@ const BufferModal: React.FC<BufferModalProps> = ({ tweets, onClose, token, onSet
             <span>If posting a thread, only the first tweet & media will be sent. You will be prompted to copy the rest. Buffer's API does not support video uploads in this context.</span>
         </div>
 
-        {postStatus === 'error' && <p className="text-red-400 text-center mb-4">{error}</p>}
+        {postStatus === 'error' && <p className="text-danger text-center mb-4">{error}</p>}
         
         <button 
           onClick={handlePost} 

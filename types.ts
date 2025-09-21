@@ -19,11 +19,12 @@ export interface Tweet {
 }
 
 export interface EditableTweet {
-  id: string;
+  id:string;
   content: string;
   media: { type: 'image' | 'video'; url: string; } | null;
   isLoadingMedia: boolean;
   isCopied: boolean;
+  isRegenerating?: boolean;
 }
 
 export interface XUserProfile {
