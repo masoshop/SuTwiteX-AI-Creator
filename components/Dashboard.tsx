@@ -1,8 +1,8 @@
 
-import React, { useState, useCallback, useRef } from 'react';
-import { generateTweet, generateTweetThread, proofreadThread, generateImage, generateVideo, summarizeUrl } from '../services/geminiService';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { generateTweet, generateTweetThread, proofreadThread, generateImage, generateVideo, summarizeUrl, summarizeFileContent } from '../services/geminiService';
 import { CreateMode } from '../types';
-import type { Source, XUserProfile, EditableTweet } from '../types';
+import type { Source, XUserProfile, EditableTweet, Draft } from '../types';
 import TweetPreview from './TweetPreview';
 import TextIcon from './icons/TextIcon';
 import LinkIcon from './icons/LinkIcon';
@@ -16,6 +16,10 @@ import TrashIcon from './icons/TrashIcon';
 import BufferIcon from './icons/BufferIcon';
 import InfoIcon from './icons/InfoIcon';
 import PaperclipIcon from './icons/PaperclipIcon';
+import BufferModal from './BufferModal';
+import GenerationStatus from './GenerationStatus';
+import LoaderIcon from './icons/LoaderIcon';
+import DraftsPanel from './DraftsPanel';
 
 const MAX_CHARS = 280;
 
@@ -43,20 +47,85 @@ const Dashboard: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [audience, setAudience] = useState('');
   const [tweets, setTweets] = useState<EditableTweet[]>([{ id: `tweet-0`, content: '', media: null, isLoadingMedia: false, isCopied: false }]);
-  const [isLoading, setIsLoading] = useState<Record<string, boolean>>({});
-  const [videoProgress, setVideoProgress] = useState('');
-  const [imageProgress, setImageProgress] = useState('');
-  
+  const [isLoading, setIsLoading] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState<{ title: string; steps: string[]; currentStep: number; error: string | null; } | null>(null);
+
   const [linkUrl, setLinkUrl] = useState('');
   const [isFetchingLink, setIsFetchingLink] = useState(false);
 
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [isSummarizingFile, setIsSummarizingFile] = useState(false);
 
   const [isProofreading, setIsProofreading] = useState(false);
   const [proofreadSuggestions, setProofreadSuggestions] = useState<string[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mediaTargetIndex, setMediaTargetIndex] = useState<number | null>(null);
+
+  const [isBufferModalOpen, setIsBufferModalOpen] = useState(false);
+  const [bufferToken, setBufferToken] = useState<string | null>(() => localStorage.getItem('buffer-token'));
+
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [saveButtonText, setSaveButtonText] = useState('Save Draft');
+  const creationPanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const savedDrafts = localStorage.getItem('sutwitex-drafts');
+    if (savedDrafts) {
+      setDrafts(JSON.parse(savedDrafts));
+    }
+  }, []);
+
+  const handleSaveDraft = () => {
+    const hasContent = tweets.some(t => t.content.trim() !== '') || prompt.trim() !== '';
+    if (!hasContent) return;
+
+    const newDraft: Draft = {
+      id: `draft-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      prompt,
+      audience,
+      createMode,
+      tweets,
+    };
+    const updatedDrafts = [newDraft, ...drafts];
+    setDrafts(updatedDrafts);
+    localStorage.setItem('sutwitex-drafts', JSON.stringify(updatedDrafts));
+    
+    setSaveButtonText('Draft Saved!');
+    setTimeout(() => setSaveButtonText('Save Draft'), 2000);
+  };
+
+  const handleLoadDraft = (id: string) => {
+    const draftToLoad = drafts.find(d => d.id === id);
+    if (draftToLoad) {
+      setCreateMode(draftToLoad.createMode);
+      setPrompt(draftToLoad.prompt);
+      setAudience(draftToLoad.audience);
+      setTweets(draftToLoad.tweets);
+      setLinkUrl('');
+      setUploadedFile(null);
+      setProofreadSuggestions([]);
+      creationPanelRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  const handleDeleteDraft = (id: string) => {
+    const updatedDrafts = drafts.filter(d => d.id !== id);
+    setDrafts(updatedDrafts);
+    localStorage.setItem('sutwitex-drafts', JSON.stringify(updatedDrafts));
+  };
+
+
+  const handleSetBufferToken = (token: string) => {
+    if (token) {
+      localStorage.setItem('buffer-token', token);
+      setBufferToken(token);
+    } else {
+      localStorage.removeItem('buffer-token');
+      setBufferToken(null);
+    }
+  };
   
   const handleTweetChange = (index: number, value: string) => {
     const newTweets = [...tweets];
@@ -69,7 +138,16 @@ const Dashboard: React.FC = () => {
   };
 
   const handleGenerate = useCallback(async (type: 'tweet' | 'thread') => {
-    setIsLoading(prev => ({ ...prev, [type]: true }));
+    setIsLoading(true);
+    const isThread = type === 'thread';
+    const title = isThread ? 'Generating Thread...' : 'Generating Tweet...';
+    const steps = ['Drafting content', 'Polishing tone', 'Finalizing output', 'Done!'];
+    setGenerationStatus({ title, steps, currentStep: 0, error: null });
+
+    // Simulate progress for better UX
+    setTimeout(() => setGenerationStatus(prev => prev ? { ...prev, currentStep: 1 } : null), 1000);
+    setTimeout(() => setGenerationStatus(prev => prev ? { ...prev, currentStep: 2 } : null), 2500);
+
     let sourceToUse: Source | undefined;
     if (createMode === CreateMode.Link && linkUrl) {
       sourceToUse = { web: { uri: linkUrl, title: 'External Link' } };
@@ -82,28 +160,35 @@ const Dashboard: React.FC = () => {
             fileToUse = { mimeType: uploadedFile.type, data: base64Data };
         } catch (error) {
             console.error("Error reading file:", error);
-            // In a real app, show a toast notification here
-            setIsLoading(prev => ({ ...prev, [type]: false }));
+            setGenerationStatus(prev => prev ? { ...prev, error: "Failed to read the uploaded file." } : null);
+            setIsLoading(false);
             return;
         }
     }
 
     const audienceToUse = audience.trim() || undefined;
 
-    let results: string[];
-    if (type === 'tweet') {
-        results = [await generateTweet(prompt, sourceToUse, audienceToUse, fileToUse)];
-    } else {
-        results = await generateTweetThread(prompt, sourceToUse, audienceToUse, fileToUse);
-    }
+    try {
+        const results = isThread
+            ? await generateTweetThread(prompt, sourceToUse, audienceToUse, fileToUse)
+            : [await generateTweet(prompt, sourceToUse, audienceToUse, fileToUse)];
+        
+        setGenerationStatus(prev => prev ? { ...prev, currentStep: 3 } : null);
 
-    if (results.length > 0 && !results[0].startsWith("Error:")) {
-        setTweets(results.map((content, i) => ({ id: `tweet-${i}`, content, media: null, isLoadingMedia: false, isCopied: false })));
-    } else {
-        setTweets([{ id: `tweet-0`, content: results[0] || 'Error: Empty response from AI.', media: null, isLoadingMedia: false, isCopied: false }]);
+        if (results.length > 0 && !results[0].startsWith("Error:")) {
+            setTweets(results.map((content, i) => ({ id: `tweet-${i}`, content, media: null, isLoadingMedia: false, isCopied: false })));
+        } else {
+            const errorMessage = results[0] || 'Empty response from AI.';
+            setTweets([{ id: `tweet-0`, content: `Error: ${errorMessage}`, media: null, isLoadingMedia: false, isCopied: false }]);
+            setGenerationStatus(prev => prev ? { ...prev, currentStep: steps.length, error: errorMessage } : null);
+        }
+    } catch (error) {
+         const message = error instanceof Error ? error.message : "An unknown error occurred.";
+         setGenerationStatus(prev => prev ? { ...prev, currentStep: steps.length, error: message } : null);
+    } finally {
+        setIsLoading(false);
+        setTimeout(() => setGenerationStatus(null), 5000); 
     }
-
-    setIsLoading(prev => ({ ...prev, [type]: false }));
   }, [prompt, createMode, linkUrl, audience, uploadedFile]);
 
   const handleFetchLink = async () => {
@@ -148,40 +233,63 @@ const Dashboard: React.FC = () => {
       let currentTweets = [...tweets];
       currentTweets[tweetIndex] = { ...currentTweets[tweetIndex], isLoadingMedia: true, media: null };
       setTweets(currentTweets);
-
-      setImageProgress('');
-      setVideoProgress('');
+      setIsLoading(true);
       
       try {
-          let mediaUrl: string;
           if (type === 'image') {
-              setImageProgress('🎨 Generating image, please wait...');
-              mediaUrl = await generateImage(mediaPrompt);
-              setImageProgress('✅ Image generated successfully!');
-              setTimeout(() => setImageProgress(''), 3000);
-          } else {
-              mediaUrl = await generateVideo(mediaPrompt, setVideoProgress);
-              setTimeout(() => setVideoProgress(''), 5000);
-          }
-          setTweets(prevTweets => {
-            const finalTweets = [...prevTweets];
-            finalTweets[tweetIndex] = { ...finalTweets[tweetIndex], media: { type, url: mediaUrl } };
-            return finalTweets;
-          });
+              const steps = ['Composing prompt', 'Generating pixels', 'Rendering image', 'Done!'];
+              setGenerationStatus({ title: 'Generating Image...', steps, currentStep: 0, error: null });
+              setTimeout(() => setGenerationStatus(prev => prev ? { ...prev, currentStep: 1 } : null), 1000);
 
-      } catch (error) {
-          console.error(`Error generating ${type}:`, error);
-          if (type === 'image') {
-            const message = error instanceof Error ? error.message : String(error);
-            setImageProgress(`Error: ${message}`);
+              const mediaUrl = await generateImage(mediaPrompt);
+              
+              setGenerationStatus(prev => prev ? { ...prev, currentStep: 2 } : null);
+              setTweets(prevTweets => {
+                const finalTweets = [...prevTweets];
+                finalTweets[tweetIndex] = { ...finalTweets[tweetIndex], media: { type, url: mediaUrl } };
+                return finalTweets;
+              });
+              setGenerationStatus(prev => prev ? { ...prev, currentStep: 3 } : null);
+
+          } else {
+              const videoSteps = ['Starting up', 'AI processing', 'Generating frames', 'Finalizing video', 'Done!'];
+              setGenerationStatus({ title: 'Generating Video...', steps: videoSteps, currentStep: 0, error: null });
+
+              const onProgress = (message: string) => {
+                setGenerationStatus(prevStatus => {
+                    if (!prevStatus) return null;
+                    let currentStep = prevStatus.currentStep;
+                    let error: string | null = null;
+                    if (message.includes('🚀')) currentStep = 0;
+                    else if (message.includes('🤖')) currentStep = 1;
+                    else if (message.includes('⏳')) currentStep = 2;
+                    else if (message.includes('✅')) currentStep = 3;
+                    else if (message.includes('🎉')) currentStep = 4;
+                    else if (message.toLowerCase().includes('error:')) {
+                        error = message.replace('Error: ', '');
+                        currentStep = videoSteps.length;
+                    }
+                    return { ...prevStatus, currentStep, error };
+                });
+              };
+              const mediaUrl = await generateVideo(mediaPrompt, onProgress);
+               setTweets(prevTweets => {
+                const finalTweets = [...prevTweets];
+                finalTweets[tweetIndex] = { ...finalTweets[tweetIndex], media: { type, url: mediaUrl } };
+                return finalTweets;
+              });
           }
-          // For video, error is handled by the onProgress callback in the service
+      } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setGenerationStatus(prev => prev ? { ...prev, error: message } : null);
       } finally {
+          setIsLoading(false);
           setTweets(prevTweets => {
             const finalTweets = [...prevTweets];
             finalTweets[tweetIndex] = { ...finalTweets[tweetIndex], isLoadingMedia: false };
             return finalTweets;
           });
+          setTimeout(() => setGenerationStatus(null), 5000);
       }
   }, [tweets]);
 
@@ -211,10 +319,22 @@ const Dashboard: React.FC = () => {
     if(event.target) event.target.value = ''; // Allow re-uploading the same file
   };
 
-  const handleContextFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleContextFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setUploadedFile(file);
+      setIsSummarizingFile(true);
+      setPrompt("🧠 Summarizing file content, please wait...");
+      try {
+        const base64Data = await fileToBase64(file);
+        const filePart = { mimeType: file.type, data: base64Data };
+        const summary = await summarizeFileContent(filePart);
+        setPrompt(summary);
+      } catch (e) {
+        setPrompt("Error: Could not read or summarize the file. Please describe it in the prompt below.");
+      } finally {
+        setIsSummarizingFile(false);
+      }
     }
   };
 
@@ -256,13 +376,6 @@ const Dashboard: React.FC = () => {
     setTweets([{ id: `tweet-0`, content: '', media: null, isLoadingMedia: false, isCopied: false }]);
   };
 
-  const handleShareOnBuffer = () => {
-    const content = tweets.map(t => t.content).join('\n\n');
-    if (!content.trim()) return;
-    const bufferUrl = `https://buffer.com/add?text=${encodeURIComponent(content)}`;
-    window.open(bufferUrl, '_blank', 'noopener,noreferrer');
-  };
-
   const ModeButton: React.FC<{ mode: CreateMode; label: string; icon: React.ReactNode }> = ({ mode, label, icon }) => (
     <button
       onClick={() => handleModeChange(mode)}
@@ -271,16 +384,6 @@ const Dashboard: React.FC = () => {
       {icon} {label}
     </button>
   );
-
-  const renderProgressIndicator = (progressMessage: string) => {
-    if (!progressMessage) return null;
-    const isError = progressMessage.startsWith('Error:');
-    return (
-        <div className={`p-4 rounded-lg border text-center ${isError ? 'bg-red-900/50 border-red-700 text-red-300' : 'bg-bg-secondary border-border-primary text-text-primary'}`}>
-            <p className={isError ? '' : 'animate-pulse'}>{progressMessage}</p>
-        </div>
-    )
-  }
 
   const renderCreationPanel = () => {
     if (createMode === CreateMode.Proofread) {
@@ -353,8 +456,9 @@ const Dashboard: React.FC = () => {
                             <PaperclipIcon className="h-5 w-5 flex-shrink-0" />
                             <span className="font-mono text-sm truncate" title={uploadedFile.name}>{uploadedFile.name}</span>
                             <span className="text-xs text-text-secondary flex-shrink-0">({(uploadedFile.size / 1024).toFixed(1)} KB)</span>
+                            {isSummarizingFile && <LoaderIcon className="h-4 w-4 text-accent-primary ml-2" />}
                         </div>
-                        <button onClick={() => setUploadedFile(null)} className="p-1 text-text-secondary hover:text-white rounded-full"><TrashIcon /></button>
+                        <button onClick={() => { setUploadedFile(null); setPrompt(''); }} className="p-1 text-text-secondary hover:text-white rounded-full"><TrashIcon /></button>
                     </div>
                 )}
              </div>
@@ -368,8 +472,8 @@ const Dashboard: React.FC = () => {
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 my-4">
-          <button onClick={() => handleGenerate('tweet')} disabled={isLoading.tweet || !prompt} className="ai-button"><SparklesIcon /> {isLoading.tweet ? 'Generating...' : 'Generate Tweet'}</button>
-          <button onClick={() => handleGenerate('thread')} disabled={isLoading.thread || !prompt} className="ai-button"><SparklesIcon /> {isLoading.thread ? 'Generating...' : 'Generate Thread'}</button>
+          <button onClick={() => handleGenerate('tweet')} disabled={isLoading || !prompt} className="ai-button"><SparklesIcon /> Generate Tweet</button>
+          <button onClick={() => handleGenerate('thread')} disabled={isLoading || !prompt} className="ai-button"><SparklesIcon /> Generate Thread</button>
       </div>
       </>
     )
@@ -385,51 +489,71 @@ const Dashboard: React.FC = () => {
         accept="image/*,video/*"
       />
       {/* --- CREATION PANEL --- */}
-      <div className="bg-bg-secondary p-6 rounded-xl border border-border-primary flex flex-col">
+      <div ref={creationPanelRef} className="bg-bg-secondary p-6 rounded-xl border border-border-primary flex flex-col">
         <h1 className="text-2xl font-bold mb-4">Create a new Post</h1>
-        <div className="flex border-b border-border-primary mb-4">
-            <ModeButton mode={CreateMode.Text} label="Text" icon={<TextIcon />} />
-            <ModeButton mode={CreateMode.Link} label="Link" icon={<LinkIcon />} />
-            <ModeButton mode={CreateMode.File} label="File" icon={<UploadIcon />} />
-            <ModeButton mode={CreateMode.Proofread} label="Proofread" icon={<CheckIcon />} />
-        </div>
 
-        <div className="flex-grow flex flex-col">
-          {renderCreationPanel()}
-          
-          <div className="space-y-4 flex-grow mt-4">
-            {tweets.map((tweet, index) => (
-              <div key={tweet.id} className="bg-bg-primary border border-border-primary rounded-lg p-1">
-                <div className="relative">
-                  <textarea value={tweet.content} onChange={(e) => handleTweetChange(index, e.target.value)} placeholder={`Tweet ${index + 1}/${tweets.length}...`} className="w-full bg-transparent p-2 pr-16 focus:outline-none" rows={4} />
-                  <span className={`absolute bottom-3 right-3 text-sm ${tweet.content.length > MAX_CHARS ? 'text-accent-secondary' : 'text-text-secondary'}`}>{tweet.content.length}/{MAX_CHARS}</span>
-                </div>
-                <div className="mt-1 p-2 border-t border-border-primary/50 flex items-center justify-end gap-2">
-                    {tweet.isLoadingMedia && <p className="text-sm text-text-primary animate-pulse mr-auto">Generating media...</p>}
-                    <button onClick={() => handleCopy(tweet.content, index)} className="action-button w-20" title="Copy Text">{tweet.isCopied ? 'Copied!' : <CopyIcon />}</button>
-                    
-                    {!tweet.media ? (
-                        <>
-                           <button onClick={() => { setMediaTargetIndex(index); fileInputRef.current?.click(); }} className="action-button" title="Upload Media"><UploadIcon /></button>
-                           <button onClick={() => handleGenerateMedia('image', tweet.content, index)} disabled={!tweet.content || tweet.isLoadingMedia} className="action-button" title="Generate Image"><CameraIcon /></button>
-                           <button onClick={() => handleGenerateMedia('video', tweet.content, index)} disabled={!tweet.content || tweet.isLoadingMedia} className="action-button" title="Generate Video"><VideoIcon /></button>
-                        </>
-                    ) : (
-                        <>
-                           <button onClick={() => { setMediaTargetIndex(index); fileInputRef.current?.click(); }} className="action-button" title="Change Media"><UploadIcon /></button>
-                           <button onClick={() => handleRemoveMedia(index)} className="action-button !bg-red-900/70 hover:!bg-red-800/70" title="Remove Media"><TrashIcon /></button>
-                        </>
-                    )}
-                </div>
-              </div>
-            ))}
-          </div>
+        {generationStatus && (
+            <div className="my-4">
+                <GenerationStatus
+                    title={generationStatus.title}
+                    steps={generationStatus.steps}
+                    currentStepIndex={generationStatus.currentStep}
+                    error={generationStatus.error}
+                />
+            </div>
+        )}
 
-          <button onClick={addTweetToThread} className="mt-4 text-accent-primary font-semibold hover:underline self-start">+ Add to Thread</button>
-        </div>
+        <fieldset disabled={isLoading} className="flex-grow flex flex-col min-h-0">
+            <div className="flex border-b border-border-primary mb-4">
+                <ModeButton mode={CreateMode.Text} label="Text" icon={<TextIcon />} />
+                <ModeButton mode={CreateMode.Link} label="Link" icon={<LinkIcon />} />
+                <ModeButton mode={CreateMode.File} label="File" icon={<UploadIcon />} />
+                <ModeButton mode={CreateMode.Proofread} label="Proofread" icon={<CheckIcon />} />
+            </div>
+
+            <div className="flex-grow flex flex-col">
+                {renderCreationPanel()}
+            
+                <div className="space-y-4 flex-grow mt-4">
+                    {tweets.map((tweet, index) => (
+                    <div key={tweet.id} className="bg-bg-primary border border-border-primary rounded-lg p-1">
+                        <div className="relative">
+                        <textarea value={tweet.content} onChange={(e) => handleTweetChange(index, e.target.value)} placeholder={`Tweet ${index + 1}/${tweets.length}...`} className="w-full bg-transparent p-2 pr-16 focus:outline-none" rows={4} />
+                        <span className={`absolute bottom-3 right-3 text-sm ${tweet.content.length > MAX_CHARS ? 'text-accent-secondary' : 'text-text-secondary'}`}>{tweet.content.length}/{MAX_CHARS}</span>
+                        </div>
+                        <div className="mt-1 p-2 border-t border-border-primary/50 flex items-center justify-end gap-2">
+                            {tweet.isLoadingMedia && <p className="text-sm text-text-primary animate-pulse mr-auto">Generating media...</p>}
+                            <button onClick={() => handleCopy(tweet.content, index)} className="action-button w-20" title="Copy Text">{tweet.isCopied ? 'Copied!' : <CopyIcon />}</button>
+                            
+                            {!tweet.media ? (
+                                <>
+                                <button onClick={() => { setMediaTargetIndex(index); fileInputRef.current?.click(); }} className="action-button" title="Upload Media"><UploadIcon /></button>
+                                <button onClick={() => handleGenerateMedia('image', tweet.content, index)} disabled={!tweet.content || isLoading} className="action-button" title="Generate Image"><CameraIcon /></button>
+                                <button onClick={() => handleGenerateMedia('video', tweet.content, index)} disabled={!tweet.content || isLoading} className="action-button" title="Generate Video"><VideoIcon /></button>
+                                </>
+                            ) : (
+                                <>
+                                <button onClick={() => { setMediaTargetIndex(index); fileInputRef.current?.click(); }} className="action-button" title="Change Media"><UploadIcon /></button>
+                                <button onClick={() => handleRemoveMedia(index)} className="action-button !bg-red-900/70 hover:!bg-red-800/70" title="Remove Media"><TrashIcon /></button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                    ))}
+                </div>
+
+                <button onClick={addTweetToThread} className="mt-4 text-accent-primary font-semibold hover:underline self-start disabled:cursor-not-allowed disabled:opacity-50">+ Add to Thread</button>
+            </div>
+        </fieldset>
         
         <div className="mt-6">
-             <button className="w-full py-3 bg-transparent border border-accent-primary text-accent-primary rounded-full font-bold hover:bg-accent-primary/10 transition">Save Draft</button>
+             <button 
+                onClick={handleSaveDraft}
+                disabled={isLoading || saveButtonText === 'Draft Saved!'} 
+                className="w-full py-3 bg-transparent border border-accent-primary text-accent-primary rounded-full font-bold hover:bg-accent-primary/10 transition disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {saveButtonText}
+              </button>
         </div>
       </div>
 
@@ -443,27 +567,37 @@ const Dashboard: React.FC = () => {
               tweet={{ id: tweet.id, content: tweet.content, author: DEFAULT_USER, media: tweet.media || undefined, stats: { likes: 0, retweets: 0, impressions: 0, replies: 0 }, postedAt: new Date() }} 
             />
           ))}
-          {renderProgressIndicator(imageProgress)}
-          {renderProgressIndicator(videoProgress)}
         </div>
 
         <div className="mt-6">
             <button 
-                onClick={handleShareOnBuffer} 
-                className="w-full py-3 bg-accent-primary text-bg-primary rounded-full font-bold hover:opacity-90 transition flex items-center justify-center gap-2"
-                disabled={tweets.every(t => t.content.trim() === '')}
+                onClick={() => setIsBufferModalOpen(true)}
+                className="w-full py-3 bg-accent-primary text-bg-primary rounded-full font-bold hover:opacity-90 transition flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={tweets.every(t => t.content.trim() === '') || isLoading}
             >
                 <BufferIcon className="h-5 w-5" /> Share on Buffer
             </button>
-            <div className="flex items-start text-xs text-text-secondary mt-3 p-2">
-                <InfoIcon className="h-4 w-4 mr-2 flex-shrink-0 mt-0.5" />
-                <span>
-                    Opens the Buffer composer in a new tab to schedule this post. Media must be added manually.
-                </span>
-            </div>
+        </div>
+        
+        <div className="mt-8">
+            <DraftsPanel
+                drafts={drafts}
+                onLoad={handleLoadDraft}
+                onDelete={handleDeleteDraft}
+            />
         </div>
 
       </div>
+
+      {isBufferModalOpen && (
+        <BufferModal
+          tweets={tweets}
+          onClose={() => setIsBufferModalOpen(false)}
+          token={bufferToken}
+          onSetToken={handleSetBufferToken}
+        />
+      )}
+
       <style>{`
           .ai-button { display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.75rem; border-radius: 9999px; font-weight: bold; transition: all 0.2s; background-color: #5A67D8; color: white; text-align: center; white-space: nowrap; }
           .ai-button:hover:not(:disabled) { background-color: #434190; }

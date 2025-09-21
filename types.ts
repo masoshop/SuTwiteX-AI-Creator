@@ -64,3 +64,12 @@ export interface AnalyticsDataPoint {
   date: string;
   [key: string]: string | number;
 }
+
+export interface Draft {
+  id: string;
+  createdAt: string; // ISO string
+  prompt: string;
+  audience: string;
+  createMode: CreateMode;
+  tweets: EditableTweet[];
+}

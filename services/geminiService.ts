@@ -14,6 +14,31 @@ interface FilePart {
     data: string; // base64 encoded
 }
 
+export const summarizeFileContent = async (file: FilePart): Promise<string> => {
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: {
+                parts: [
+                    {
+                        text: "Summarize the key points of this document into a concise paragraph, suitable as a starting point for creating a social media post. Focus on the most important information."
+                    },
+                    {
+                        inlineData: {
+                            mimeType: file.mimeType,
+                            data: file.data
+                        }
+                    }
+                ]
+            }
+        });
+        return response.text;
+    } catch (error) {
+        console.error("Error summarizing file content:", error);
+        return "Error: Could not summarize the file.";
+    }
+};
+
 const getSystemInstructionTweet = (audience?: string) => `You are a world-class social media expert for X, a master of creating viral, "scroll-stopping" content. Your goal is to write a single, highly engaging tweet.
 
 **CRITICAL RULES:**
@@ -64,19 +89,26 @@ const createPrompt = (basePrompt: string, source?: Source) => {
 export const generateTweet = async (prompt: string, source?: Source, audience?: string, file?: FilePart): Promise<string> => {
     try {
         const fullPrompt = createPrompt(prompt, source);
-        const parts: any[] = [{ text: fullPrompt }];
+        
+        let contents: any;
         if (file) {
-            parts.push({
-                inlineData: {
-                    mimeType: file.mimeType,
-                    data: file.data
+            const parts = [
+                { text: fullPrompt },
+                {
+                    inlineData: {
+                        mimeType: file.mimeType,
+                        data: file.data
+                    }
                 }
-            });
+            ];
+            contents = { parts };
+        } else {
+            contents = fullPrompt;
         }
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: { parts },
+            contents,
             config: {
                 systemInstruction: getSystemInstructionTweet(audience),
             },
@@ -91,19 +123,26 @@ export const generateTweet = async (prompt: string, source?: Source, audience?: 
 export const generateTweetThread = async (prompt: string, source?: Source, audience?: string, file?: FilePart): Promise<string[]> => {
     try {
         const fullPrompt = createPrompt(`Create a tweet thread about: ${prompt}`, source);
-        const parts: any[] = [{ text: fullPrompt }];
+        
+        let contents: any;
         if (file) {
-            parts.push({
-                inlineData: {
-                    mimeType: file.mimeType,
-                    data: file.data
+            const parts = [
+                { text: fullPrompt },
+                {
+                    inlineData: {
+                        mimeType: file.mimeType,
+                        data: file.data
+                    }
                 }
-            });
+            ];
+            contents = { parts };
+        } else {
+            contents = fullPrompt;
         }
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: { parts },
+            contents,
             config: {
                 systemInstruction: getSystemInstructionThread(audience),
                 responseMimeType: "application/json",
