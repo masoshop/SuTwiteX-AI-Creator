@@ -78,7 +78,8 @@ const CreateTweet: React.FC = () => {
               const imageUrl = await generateImage(prompt);
               setMedia({ type: 'image', url: imageUrl });
           } else {
-              const videoUrl = await generateVideo(prompt, setVideoProgress);
+              // FIX: Pass the missing 'style' argument to `generateVideo` to match its function signature. The default style 'cinematic' is used.
+              const videoUrl = await generateVideo(prompt, 'cinematic', setVideoProgress);
               setMedia({ type: 'video', url: videoUrl });
           }
       } catch (error) {
