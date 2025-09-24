@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="UTF-T" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SuTwiteX AI Creator</title>
@@ -11,19 +11,19 @@
         theme: {
           extend: {
             colors: {
-              'bg-primary': '#0B0115',
-              'bg-secondary': '#1E0A3C',
-              'accent-primary': '#48bfe3',
-              'accent-secondary': '#80ffdb',
-              'text-primary': '#F0F8FF',
-              'text-secondary': '#64dfdf',
-              'border-primary': '#3A1F78',
-              'success': '#72efdd',
-              'danger': '#7400b8',
+              'bg-primary': '#F9FAFB',        // Off-white background
+              'bg-secondary': '#FFFFFF',      // White for cards/panels
+              'accent-primary': '#3B82F6',    // Brighter, professional blue
+              'accent-secondary': '#10B981',  // Emerald green
+              'text-primary': '#111827',      // Near-black text
+              'text-secondary': '#6B7280',    // Medium gray text
+              'border-primary': '#E5E7EB',    // Lighter gray border
+              'success': '#16A34A',           // Green
+              'danger': '#E11D48',            // Rose red
             },
             boxShadow: {
-              'glow-blue': '0 0 15px rgba(72, 191, 227, 0.4)',
-              'glow-violet': '0 0 15px rgba(128, 255, 219, 0.4)',
+              'glow-blue': '0 0 15px rgba(59, 130, 246, 0.2)', // Adjusted glow for new blue
+              'glow-violet': '0 0 15px rgba(16, 185, 129, 0.2)', // Adjusted glow for new green
             }
           },
         },
@@ -58,9 +58,9 @@
       const particleCount = 70;
       const connectionDistance = 150;
       
-      const particleColor = "#64dfdf";
-      const lineColor = "#5e60ce";
-      const pulseColor = "#48bfe3";
+      const particleColor = "#D1D5DB";
+      const lineColor = "#E5E7EB";
+      const pulseColor = "#3B82F6";
 
       const mouse = {
         x: undefined,
@@ -179,7 +179,7 @@
             if (dist < connectionDistance) {
               const opacity = 1 - dist / connectionDistance;
               ctx.beginPath();
-              ctx.strokeStyle = `rgba(94, 96, 206, ${opacity * 0.5})`;
+              ctx.strokeStyle = `rgba(107, 114, 128, ${opacity * 0.5})`;
               ctx.lineWidth = 0.5;
               ctx.moveTo(particles[i].x, particles[i].y);
               ctx.lineTo(particles[j].x, particles[j].y);

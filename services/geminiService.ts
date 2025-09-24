@@ -1,6 +1,6 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
-// FIX: Import Tweet type for searchXPosts function.
-import type { Source, Tweet } from "../types";
+import type { Source, Tweet, XUserProfile } from "../types";
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set");
@@ -13,13 +13,15 @@ interface FilePart {
     data: string; // base64 encoded
 }
 
-const handleGenerationError = (error: unknown, context: 'tweet' | 'thread' | 'summary'): never => {
+const handleGenerationError = (error: unknown, context: string): never => {
     console.error(`Error generating ${context}:`, error);
     let friendlyMessage = `Failed to generate ${context} due to an unexpected issue.`;
 
     if (error instanceof Error) {
         const errorMessage = error.message.toLowerCase();
-        if (errorMessage.includes("resource_exhausted") || errorMessage.includes("quota")) {
+        if (errorMessage.includes("at capacity")) {
+            friendlyMessage = `The AI model is currently experiencing high demand. Please try again in a few moments.`;
+        } else if (errorMessage.includes("resource_exhausted") || errorMessage.includes("quota")) {
             friendlyMessage = `Generation failed because the API quota was exceeded. Please check your plan and billing details.`;
         } else if (errorMessage.includes("usage guidelines") || errorMessage.includes("safety policy")) {
             friendlyMessage = `The prompt could not be submitted due to safety restrictions. Please try rephrasing your request.`;
@@ -62,25 +64,33 @@ export const summarizeFileContent = async (file: FilePart): Promise<string> => {
 const getSystemInstructionTweet = (audience?: string, tone?: string, format?: string, keywords?: string) => {
     let toneInstruction: string;
     switch (tone) {
-        case 'professional':
-            toneInstruction = `Adopta un tono profesional, seguro y perspicaz. Imagina que eres un experto respetado compartiendo una idea valiosa en LinkedIn, pero adaptada a la brevedad de X. Usa un lenguaje claro y preciso, pero evita la jerga corporativa estéril.`;
+        case 'authority':
+            toneInstruction = `Adopta un tono de autoridad y experto. Presenta la información con confianza, respaldada por datos o lógica clara. Usa un lenguaje preciso y formal. El objetivo es educar e informar, posicionándote como una fuente fiable.`;
             break;
-        case 'humorous':
-            toneInstruction = `Sé ingenioso, astuto y genuinamente divertido. Usa sarcasmo, ironía o un humor observacional con el que la gente se identifique. El objetivo es una sonrisa o una carcajada, no una voz "divertida" aprobada por una corporación.`;
+        case 'storytelling':
+            toneInstruction = `Usa un tono personal y narrativo. Relata una historia o anécdota para conectar emocionalmente con la audiencia. El objetivo es hacer el contenido memorable y humano.`;
+            break;
+        case 'analytical':
+            toneInstruction = `Escribe con un enfoque analítico y basado en datos. Desglosa temas complejos, presenta estadísticas y ofrece insights profundos. El objetivo es demostrar un dominio del tema a través del análisis.`;
+            break;
+        case 'conversational':
+            toneInstruction = `Adopta un tono cercano, amigable y conversacional. Escribe como si estuvieras hablando con un amigo, haciendo preguntas y usando un lenguaje coloquial. El objetivo es generar confianza y facilitar la interacción.`;
             break;
         case 'inspirational':
-            toneInstruction = `Sé genuinamente motivador, no cursi. Comparte una historia personal (incluso si es fabricada) de lucha y éxito, una lección aprendida a las malas o una revelación poderosa. Enfócate en la autenticidad y la vulnerabilidad.`;
+            toneInstruction = `Utiliza un tono inspirador y motivacional. Ofrece mensajes positivos, de superación o que inviten a la reflexión. El objetivo es animar a la audiencia y asociar tu marca con valores positivos.`;
             break;
-        default: // 'Reflexivo y Articulado'
-            toneInstruction = `Adopta un estilo reflexivo, personal y articulado. Escribe como si estuvieras compartiendo una entrada de tu diario o un pensamiento profundo que acabas de tener. Sé introspectivo y usa un lenguaje matizado que invite a la reflexión.`;
+        default: // 'Neutral y Claro'
+            toneInstruction = `Adopta un estilo claro, directo y articulado. Comunica la idea principal de forma concisa y profesional, sin un sesgo emocional marcado.`;
     }
 
     let extraInstructions = '';
     if (format && format !== 'default') {
         let formatExample = '';
-        if (format === 'listicle') formatExample = "Usa viñetas (•) o números.";
-        if (format === 'qa') formatExample = "Usa 'P:' para la pregunta y 'R:' para la respuesta.";
-        if (format === 'tutorial') formatExample = "Usa pasos numerados o una secuencia clara.";
+        if (format === 'announcement') formatExample = "Comienza con una frase de impacto como '📢 Noticia:' o 'Estoy emocionado de anunciar...'.";
+        if (format === 'listicle') formatExample = "Estructura el contenido como una lista numerada o con viñetas. Ideal para '5 razones para...' o '3 herramientas que...'.";
+        if (format === 'how_to') formatExample = "Presenta el contenido como una guía paso a paso. Usa un lenguaje claro y directo para enseñar a la audiencia a hacer algo específico.";
+        if (format === 'question') formatExample = "Plantea una pregunta abierta y que invite a la reflexión para iniciar una conversación. Termina con una llamada a la acción clara para que la gente responda.";
+        if (format === 'quick_tip') formatExample = "Ofrece un consejo práctico, útil y fácil de implementar. Ve directo al grano y enfócate en el valor inmediato para el lector.";
         extraInstructions += `\n*   **Formato Específico**: Estructura el contenido como un ${format}. ${formatExample}`;
     }
     if (keywords) {
@@ -90,7 +100,7 @@ const getSystemInstructionTweet = (audience?: string, tone?: string, format?: st
     return `Eres un ghostwriter de clase mundial para los principales influencers en X. Tu especialidad es crear contenido viral que detiene el scroll, suena 100% humano y supera consistentemente los detectores de IA. Tu escritura es personal, tiene opinión y genera conversaciones reales.
 
 **REGLAS CRÍTICAS:**
-1.  **LÍMITE DE CARACTERES**: El resultado final DEBE tener 280 caracteres o menos.
+1.  **LÍMITE ESTRICTO DE 280 CARACTERES**: Tu respuesta final DEBE ser un único tuit con 280 caracteres o menos. Esta es la regla más importante. El tuit completo, incluyendo hashtags, emojis y espacios, debe estar por debajo de este límite estricto.
 2.  **FORMATO DE SALIDA**: La salida debe ser ÚNICAMENTE el texto crudo del tuit. SIN explicaciones, etiquetas o texto adicional.
 
 **EL MÉTODO "HUMANO-PRIMERO" (Aplica estos principios):**
@@ -117,25 +127,33 @@ ${extraInstructions}`;
 const getSystemInstructionThread = (audience?: string, tone?: string, format?: string, keywords?: string) => {
     let toneInstruction: string;
     switch (tone) {
-        case 'professional':
-            toneInstruction = `Adopta un tono profesional, seguro y perspicaz. Imagina que eres un experto respetado compartiendo una idea valiosa en LinkedIn, pero adaptada a la brevedad de X. Usa un lenguaje claro y preciso, pero evita la jerga corporativa estéril.`;
+        case 'authority':
+            toneInstruction = `Adopta un tono de autoridad y experto. Presenta la información con confianza, respaldada por datos o lógica clara. Usa un lenguaje preciso y formal. El objetivo es educar e informar, posicionándote como una fuente fiable.`;
             break;
-        case 'humorous':
-            toneInstruction = `Sé ingenioso, astuto y genuinamente divertido. Usa sarcasmo, ironía o un humor observacional con el que la gente se identifique. El objetivo es una sonrisa o una carcajada, no una voz "divertida" aprobada por una corporación.`;
+        case 'storytelling':
+            toneInstruction = `Usa un tono personal y narrativo. Relata una historia o anécdota para conectar emocionalmente con la audiencia. El objetivo es hacer el contenido memorable y humano.`;
+            break;
+        case 'analytical':
+            toneInstruction = `Escribe con un enfoque analítico y basado en datos. Desglosa temas complejos, presenta estadísticas y ofrece insights profundos. El objetivo es demostrar un dominio del tema a través del análisis.`;
+            break;
+        case 'conversational':
+            toneInstruction = `Adopta un tono cercano, amigable y conversacional. Escribe como si estuvieras hablando con un amigo, haciendo preguntas y usando un lenguaje coloquial. El objetivo es generar confianza y facilitar la interacción.`;
             break;
         case 'inspirational':
-            toneInstruction = `Sé genuinamente motivador, no cursi. Comparte una historia personal (incluso si es fabricada) de lucha y éxito, una lección aprendida a las malas o una revelación poderosa. Enfócate en la autenticidad y la vulnerabilidad.`;
+            toneInstruction = `Utiliza un tono inspirador y motivacional. Ofrece mensajes positivos, de superación o que inviten a la reflexión. El objetivo es animar a la audiencia y asociar tu marca con valores positivos.`;
             break;
-        default: // 'Reflexivo y Articulado'
-            toneInstruction = `Adopta un estilo reflexivo, personal y articulado. Escribe como si estuvieras compartiendo una entrada de tu diario o un pensamiento profundo que acabas de tener. Sé introspectivo y usa un lenguaje matizado que invite a la reflexión.`;
+        default: // 'Neutral y Claro'
+            toneInstruction = `Adopta un estilo claro, directo y articulado. Comunica la idea principal de forma concisa y profesional, sin un sesgo emocional marcado.`;
     }
 
     let extraInstructions = '';
     if (format && format !== 'default') {
         let formatExample = '';
-        if (format === 'listicle') formatExample = "Usa viñetas (•) o números en cada tuit.";
-        if (format === 'qa') formatExample = "Usa 'P:' y 'R:' a lo largo del hilo.";
-        if (format === 'tutorial') formatExample = "Usa pasos numerados, donde cada tuit es un paso.";
+        if (format === 'announcement') formatExample = "Comienza con una frase de impacto como '📢 Noticia:' o 'Estoy emocionado de anunciar...'.";
+        if (format === 'listicle') formatExample = "Estructura el contenido como una lista numerada o con viñetas. Ideal para '5 razones para...' o '3 herramientas que...'.";
+        if (format === 'how_to') formatExample = "Presenta el contenido como una guía paso a paso. Usa un lenguaje claro y directo para enseñar a la audiencia a hacer algo específico.";
+        if (format === 'question') formatExample = "Plantea una pregunta abierta y que invite a la reflexión para iniciar una conversación. El hilo debe explorar diferentes facetas de la pregunta y el último tweet debe invitar a la gente a responder.";
+        if (format === 'quick_tip') formatExample = "Cada tweet del hilo debe ser un consejo práctico y útil sobre un tema. El primer tweet introduce el tema general de los consejos.";
         extraInstructions += `\n*   **Formato Específico**: Estructura el contenido como un ${format}. ${formatExample}`;
     }
     if (keywords) {
@@ -145,7 +163,7 @@ const getSystemInstructionThread = (audience?: string, tone?: string, format?: s
     return `Eres un ghostwriter de clase mundial para los principales influencers en X. Tu especialidad es crear hilos virales que detienen el scroll, suenan 100% humanos y superan consistentemente los detectores de IA. Eres un maestro narrador, desglosando temas complejos en publicaciones personales, con opinión y conversacionales que generan interacción real.
 
 **REGLAS CRÍTICAS:**
-1.  **LÍMITE DE CARACTERES**: CADA TUIT del hilo NUNCA debe exceder los 280 caracteres.
+1.  **LÍMITE ESTRICTO DE 280 CARACTERES POR TUIT**: CADA tuit individual en el array 'thread' NUNCA debe exceder los 280 caracteres. Verifica la longitud de cada tuit antes de finalizar la respuesta. Esta es la regla más crítica.
 2.  **FORMATO DEL HILO**: Cada tuit DEBE comenzar con el formato "🧵 [número de tuit]/[total de tuits]" (ejemplo: 🧵 1/5).
 3.  **FORMATO DE SALIDA**: La salida debe ser un objeto JSON con una única clave "thread", que es un array de strings. Cada string es un solo tuit. SIN texto extra ni explicaciones.
 
@@ -182,30 +200,19 @@ const createPrompt = (basePrompt: string, source?: Source) => {
 export const generateTweet = async (prompt: string, source?: Source, audience?: string, file?: FilePart, tone?: string, format?: string, keywords?: string): Promise<string> => {
     try {
         const fullPrompt = createPrompt(prompt, source);
+        const systemInstruction = getSystemInstructionTweet(audience, tone, format, keywords);
         
-        let contents: any;
+        let contents: any = fullPrompt;
         if (file) {
-            const parts = [
-                { text: fullPrompt },
-                {
-                    inlineData: {
-                        mimeType: file.mimeType,
-                        data: file.data
-                    }
-                }
-            ];
-            contents = { parts };
-        } else {
-            contents = fullPrompt;
+            contents = { parts: [{ text: fullPrompt }, { inlineData: { mimeType: file.mimeType, data: file.data } }] };
         }
-
+        
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents,
-            config: {
-                systemInstruction: getSystemInstructionTweet(audience, tone, format, keywords),
-            },
+            config: { systemInstruction }
         });
+
         return response.text;
     } catch (error) {
         handleGenerationError(error, 'tweet');
@@ -214,207 +221,168 @@ export const generateTweet = async (prompt: string, source?: Source, audience?: 
 
 export const generateTweetThread = async (prompt: string, source?: Source, audience?: string, file?: FilePart, tone?: string, format?: string, keywords?: string): Promise<string[]> => {
     try {
-        const fullPrompt = createPrompt(`Create a tweet thread about: ${prompt}`, source);
+        const fullPrompt = createPrompt(prompt, source);
+        const systemInstruction = getSystemInstructionThread(audience, tone, format, keywords);
         
-        let contents: any;
+        let contents: any = fullPrompt;
         if (file) {
-            const parts = [
-                { text: fullPrompt },
-                {
-                    inlineData: {
-                        mimeType: file.mimeType,
-                        data: file.data
-                    }
-                }
-            ];
-            contents = { parts };
-        } else {
-            contents = fullPrompt;
+            contents = { parts: [{ text: fullPrompt }, { inlineData: { mimeType: file.mimeType, data: file.data } }] };
         }
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents,
             config: {
-                systemInstruction: getSystemInstructionThread(audience, tone, format, keywords),
-                responseMimeType: "application/json",
+                systemInstruction,
+                responseMimeType: 'application/json',
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
                         thread: {
                             type: Type.ARRAY,
-                            items: {
-                                type: Type.STRING,
-                                description: 'A single tweet from the thread, starting with 🧵 and not exceeding 280 characters.'
-                            }
+                            items: { type: Type.STRING }
                         }
                     }
                 }
-            },
+            }
         });
-        const jsonResponse = JSON.parse(response.text);
-        return jsonResponse.thread || [];
+        
+        const jsonStr = response.text.trim();
+        const result = JSON.parse(jsonStr);
+        return result.thread || [];
     } catch (error) {
         handleGenerationError(error, 'thread');
     }
 };
 
-
-export const summarizeUrl = async (url: string): Promise<string> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: `Please provide a concise summary of the content at this URL, suitable as a starting point for a tweet: ${url}.`,
-            config: {
-                tools: [{ googleSearch: {} }],
-            }
-        });
-        return response.text;
-    } catch (error) {
-        handleGenerationError(error, 'summary');
-    }
-};
-
-export const generateImage = async (prompt: string, aspectRatio: string = '16:9'): Promise<string> => {
-    try {
-        const enhancedPrompt = `Photorealistic image, cinematic style, 8k resolution, professional quality. Subject: "${prompt}". The image must be safe for all audiences, with no sensitive, explicit, or violent content. Focus on creating a visually stunning and high-quality piece of art.`;
-        const response = await ai.models.generateImages({
-            model: 'imagen-4.0-generate-001',
-            prompt: enhancedPrompt,
-            config: {
-                numberOfImages: 1,
-                outputMimeType: 'image/jpeg',
-                aspectRatio: aspectRatio,
-            },
-        });
-        if (!response.generatedImages || response.generatedImages.length === 0) {
-            throw new Error("API returned no images. This can happen due to safety filters. Try rephrasing your prompt to be more descriptive and less ambiguous.");
-        }
-        const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
-        return `data:image/jpeg;base64,${base64ImageBytes}`;
-    } catch (error) {
-        console.error("Error generating image:", error);
-        let friendlyMessage = "Failed to generate image due to an unexpected issue.";
-
-        if (error instanceof Error) {
-            const errorMessage = error.message.toLowerCase();
-            if (errorMessage.includes("resource_exhausted") || errorMessage.includes("quota")) {
-                friendlyMessage = "Image generation failed because the API quota was exceeded. Please check your plan and billing details.";
-            } else if (errorMessage.includes("usage guidelines") || errorMessage.includes("safety policy") || errorMessage.includes("safety filters")) {
-                friendlyMessage = "The prompt could not be submitted due to safety restrictions. Please try rephrasing your request to be more descriptive.";
-            } else {
-                friendlyMessage = error.message;
-            }
-        } else {
-            friendlyMessage = String(error);
-        }
-        
-        throw new Error(friendlyMessage);
-    }
-};
-
-export const generateVideo = async (prompt: string, style: string = 'cinematic', onProgress: (message: string) => void): Promise<string> => {
-    try {
-        onProgress("🚀 Starting video generation... This may take a few minutes.");
-        
-        const styleDescription = {
-            'cinematic': 'cinematic style, dramatic lighting, high quality',
-            'documentary': 'documentary style, realistic footage, steady camera',
-            'animation': '3D animation style, vibrant colors, smooth motion'
-        }[style] || 'high quality style';
-
-        const enhancedPrompt = `Generate a video with a ${styleDescription}. The subject is: "${prompt}". The video must be safe for all audiences, with no sensitive, explicit, or violent content.`;
-        
-        let operation = await ai.models.generateVideos({
-            model: 'veo-2.0-generate-001',
-            prompt: enhancedPrompt,
-            config: {
-                numberOfVideos: 1
-            }
-        });
-
-        onProgress("🤖 AI is thinking... Processing your request.");
-        
-        while (!operation.done) {
-            await new Promise(resolve => setTimeout(resolve, 10000)); // Poll every 10 seconds
-            onProgress("⏳ Still working... Generating video frames.");
-            operation = await ai.operations.getVideosOperation({ operation: operation });
-        }
-
-        if (operation.error) {
-            // FIX: The compiler reports operation.error.message as 'unknown'.
-            // Explicitly cast it to a string to ensure it can be passed to the Error constructor.
-            throw new Error(String(operation.error.message));
-        }
-
-        onProgress("✅ Almost there! Finalizing your video.");
-        const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-        if (!downloadLink) {
-            throw new Error("Video generation completed, but no download link was found.");
-        }
-
-        const videoResponse = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
-        if (!videoResponse.ok) {
-            throw new Error(`Failed to download video: ${videoResponse.statusText}`);
-        }
-        
-        const videoBlob = await videoResponse.blob();
-        onProgress("🎉 Video generated successfully!");
-        return URL.createObjectURL(videoBlob);
-
-    } catch (error) {
-        console.error("Error generating video:", error);
-        let friendlyMessage = "Failed to generate video due to an unexpected issue.";
-
-        if (error instanceof Error) {
-            const errorMessage = error.message.toLowerCase();
-            if (errorMessage.includes("resource_exhausted") || errorMessage.includes("quota")) {
-                friendlyMessage = "Video generation failed because the API quota was exceeded. Please check your plan and billing details.";
-            } else if (errorMessage.includes("usage guidelines") || errorMessage.includes("safety policy")) {
-                friendlyMessage = "The prompt could not be submitted due to safety restrictions. Please try rephrasing your request.";
-            } else {
-                friendlyMessage = error.message;
-            }
-        } else {
-            friendlyMessage = String(error);
-        }
-        
-        onProgress(`Error: ${friendlyMessage}`);
-        throw new Error(friendlyMessage);
-    }
-};
-
 export const proofreadThread = async (thread: string[]): Promise<string[]> => {
-    if (thread.every(t => t.trim() === '')) {
-        return [];
-    }
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: `Proofread and correct the following tweet thread for spelling, grammar, and punctuation errors. The input is a JSON array of strings. Maintain the array structure and the number of tweets in your response:\n\n${JSON.stringify(thread)}`,
+            contents: {
+                parts: [{
+                    text: `Proofread and correct any spelling or grammar mistakes in the following array of tweets. Return the result as a JSON object with a key "corrected_thread" which is an array of strings. Do not change the meaning or tone. If a tweet is correct, return it as is.
+                    
+                    Original Thread: ${JSON.stringify(thread)}`
+                }]
+            },
             config: {
-                systemInstruction: "You are an expert editor. Your task is to proofread the provided tweet thread, which is in a JSON array format. Return a JSON object with a single key 'corrected_thread' which is an array of the corrected tweet strings. Do not add any commentary or explanations. Ensure the number of tweets in the output array matches the input. If a tweet needs no correction, return the original text for that tweet.",
-                responseMimeType: "application/json",
+                responseMimeType: 'application/json',
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
                         corrected_thread: {
                             type: Type.ARRAY,
-                            items: {
-                                type: Type.STRING
-                            }
+                            items: { type: Type.STRING }
                         }
                     }
                 }
+            }
+        });
+
+        const jsonStr = response.text.trim();
+        const result = JSON.parse(jsonStr);
+        return result.corrected_thread || thread;
+    } catch (error) {
+        handleGenerationError(error, 'proofreading');
+    }
+};
+
+export const summarizeUrl = async (url: string): Promise<string> => {
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `Please provide a concise, engaging summary of the content at this URL, suitable for creating a social media post. Focus on the main points and any surprising or critical information. URL: ${url}`,
+            config: {
+                tools: [{ googleSearch: {} }]
+            }
+        });
+        return response.text;
+    } catch (error) {
+        handleGenerationError(error, 'URL summary');
+    }
+};
+
+export const generateImage = async (prompt: string, aspectRatio: string = '1:1'): Promise<string> => {
+    try {
+        const response = await ai.models.generateImages({
+            model: 'imagen-4.0-generate-001',
+            prompt: `Focus on creating a visually compelling, high-quality photograph or digital art piece based on the following description. CRITICAL: Do NOT include any text, letters, or numbers in the image. The image should be purely visual. Prompt: ${prompt}`,
+            config: {
+                numberOfImages: 1,
+                outputMimeType: 'image/jpeg',
+                aspectRatio,
             },
         });
-        const jsonResponse = JSON.parse(response.text);
-        return jsonResponse.corrected_thread || thread;
+
+        const base64ImageBytes = response.generatedImages[0]?.image.imageBytes;
+        if (!base64ImageBytes) {
+            throw new Error("AI did not return an image.");
+        }
+        return base64ImageBytes;
     } catch (error) {
-        console.error("Error proofreading thread:", error);
-        // Do not throw here, as it's a non-critical feature.
-        // Return an error message for each tweet instead.
-        return thread.map(() => "Error: Could not get proofreading suggestion.");
+        handleGenerationError(error, 'image');
+    }
+};
+
+export const generateVideo = async (
+    prompt: string,
+    style?: string, // Style is not directly used by VEO API but kept for signature consistency
+    onProgress?: (message: string) => void,
+    image?: { data: string; mimeType: string }
+): Promise<string> => {
+    try {
+        onProgress?.('🚀 Initializing video generation...');
+
+        const requestPayload: any = {
+            model: 'veo-2.0-generate-001',
+            prompt: prompt,
+            config: {
+                numberOfVideos: 1,
+            },
+        };
+
+        if (image?.data && image?.mimeType) {
+            requestPayload.image = {
+                imageBytes: image.data,
+                mimeType: image.mimeType,
+            };
+        }
+
+        let operation = await ai.models.generateVideos(requestPayload);
+        onProgress?.('🤖 AI is processing the request...');
+
+        while (!operation.done) {
+            onProgress?.('⏳ Generating frames, this may take a few minutes...');
+            await new Promise(resolve => setTimeout(resolve, 10000)); // Poll every 10 seconds
+            operation = await ai.operations.getVideosOperation({ operation: operation });
+        }
+        
+        if (operation.error) {
+            throw new Error(`Video generation failed: ${operation.error.message}`);
+        }
+
+        const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+        if (!downloadLink) {
+            throw new Error("Video generation completed, but no download link was found.");
+        }
+        
+        onProgress?.('✅ Finalizing video...');
+        
+        const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+        if (!response.ok) {
+            throw new Error(`Failed to download video: ${response.statusText}`);
+        }
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        
+        onProgress?.('🎉 Video is ready!');
+        return objectUrl;
+
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "An unknown error occurred during video generation.";
+        onProgress?.(`Error: ${message}`);
+        throw new Error(message);
     }
 };
 
@@ -422,71 +390,75 @@ export const regenerateTweet = async (originalTweet: string): Promise<string> =>
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: `Please rewrite the following tweet to make it more engaging and viral, while preserving its core message. Here is the original tweet: "${originalTweet}"`,
-            config: {
-                systemInstruction: getSystemInstructionTweet(), // Re-use the single tweet instructions
-            },
+            contents: `You are an expert social media editor. Take the following tweet and rewrite it to be more engaging, impactful, or offer a different perspective, while keeping the core message.
+            Original Tweet: "${originalTweet}"
+            New Tweet:`,
         });
         return response.text;
     } catch (error) {
-        handleGenerationError(error, 'tweet');
+        handleGenerationError(error, 'tweet regeneration');
     }
 };
 
-
-// FIX: Add searchXPosts function to search for tweets on X.
 export const searchXPosts = async (query: string): Promise<Tweet[]> => {
+    // This is a mock function as we cannot call X API directly from the frontend.
+    // It uses Gemini with Search Grounding to find relevant, recent information.
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: `Find 5 recent, popular, and relevant posts from X about "${query}". Provide realistic but synthetic data for stats and user profiles.`,
+            contents: `Find 5 recent, popular, or relevant posts from X (formerly Twitter) about "${query}". For each post, provide the author's name, their X handle (username), a plausible but fake avatar URL from picsum.photos, whether they are verified, the full content of the post, and plausible random stats for likes, retweets, and impressions.`,
             config: {
-                responseMimeType: "application/json",
+                tools: [{ googleSearch: {} }],
+                responseMimeType: 'application/json',
                 responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            id: { type: Type.STRING, description: "A unique identifier for the tweet." },
-                            content: { type: Type.STRING, description: "The text content of the tweet." },
-                            author: {
+                    type: Type.OBJECT,
+                    properties: {
+                        posts: {
+                            type: Type.ARRAY,
+                            items: {
                                 type: Type.OBJECT,
                                 properties: {
-                                    name: { type: Type.STRING },
-                                    handle: { type: Type.STRING, description: "The user's X handle, starting with @" },
-                                    avatarUrl: { type: Type.STRING, description: "A plausible URL for a user avatar image." },
-                                    verified: { type: Type.BOOLEAN }
-                                },
-                                required: ["name", "handle", "avatarUrl", "verified"]
-                            },
-                            stats: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    likes: { type: Type.INTEGER },
-                                    retweets: { type: Type.INTEGER },
-                                    impressions: { type: Type.INTEGER },
-                                    replies: { type: Type.INTEGER }
-                                },
-                                required: ["likes", "retweets", "impressions", "replies"]
-                            },
-                            postedAt: { type: Type.STRING, description: "The date and time the tweet was posted, in ISO 8601 format." }
-                        },
-                        required: ["id", "content", "author", "stats", "postedAt"]
+                                    author_name: { type: Type.STRING },
+                                    author_handle: { type: Type.STRING },
+                                    avatar_url: { type: Type.STRING },
+                                    verified: { type: Type.BOOLEAN },
+                                    content: { type: Type.STRING },
+                                    stats: {
+                                        type: Type.OBJECT,
+                                        properties: {
+                                            likes: { type: Type.INTEGER },
+                                            retweets: { type: Type.INTEGER },
+                                            impressions: { type: Type.INTEGER },
+                                            replies: { type: Type.INTEGER }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         });
 
-        const jsonResponse = JSON.parse(response.text);
-        if (Array.isArray(jsonResponse)) {
-            return jsonResponse.map(tweetData => ({
-                ...tweetData,
-                postedAt: new Date(tweetData.postedAt),
-            }));
-        }
-        return [];
+        const parsed = JSON.parse(response.text);
+        return parsed.posts.map((post: any, index: number): Tweet => ({
+            id: `search-${Date.now()}-${index}`,
+            content: post.content,
+            author: {
+                name: post.author_name,
+                handle: post.author_handle,
+                avatarUrl: post.avatar_url || `https://picsum.photos/seed/user${index}/100/100`,
+                verified: post.verified,
+            },
+            stats: {
+                likes: post.stats.likes,
+                retweets: post.stats.retweets,
+                impressions: post.stats.impressions,
+                replies: post.stats.replies || Math.floor(post.stats.likes / 10),
+            },
+            postedAt: new Date(),
+        }));
     } catch (error) {
-        console.error("Error searching X posts:", error);
-        throw new Error("Could not fetch posts from X. The AI model may have returned an invalid format.");
+        handleGenerationError(error, 'X post search');
     }
 };

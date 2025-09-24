@@ -1,33 +1,18 @@
 import React from 'react';
 
 const LogoIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-  <svg width="24" height="24" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+  <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
     <defs>
       <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" style={{ stopColor: '#48bfe3' }} />
-        <stop offset="100%" style={{ stopColor: '#80ffdb' }} />
+        <stop offset="0%" style={{ stopColor: '#3B82F6' }} /> 
+        <stop offset="100%" style={{ stopColor: '#10B981' }} />
       </linearGradient>
     </defs>
-    {/* Intertwined S and X */}
+    {/* A modern, abstract shape combining a spark and a swoosh */}
     <path 
-      d="M65,10 C50,10 50,30 65,30 L35,70 C50,70 50,90 35,90" 
-      stroke="url(#logoGradient)" 
-      strokeWidth="14" 
-      strokeLinecap="round" 
-      strokeLinejoin="round"
-    />
-    <path 
-      d="M35,10 L65,40 M35,60 L65,90" 
-      stroke="#F0F8FF"
-      strokeOpacity="0.8"
-      strokeWidth="14" 
-      strokeLinecap="round" 
-      strokeLinejoin="round"
-    />
-    {/* AI Sparkle */}
-    <path 
-      d="M85 15 L88 25 L98 28 L88 31 L85 41 L82 31 L72 28 L82 25 Z"
-      fill="#80ffdb"
+      d="M50 15 C60 25, 75 40, 75 50 C75 60, 60 75, 50 85 C40 75, 25 60, 25 50 C25 40, 40 25, 50 15 Z M50 35 L55 45 L65 50 L55 55 L50 65 L45 55 L35 50 L45 45 Z" 
+      fill="url(#logoGradient)"
+      transform="rotate(15 50 50)"
     />
   </svg>
 );

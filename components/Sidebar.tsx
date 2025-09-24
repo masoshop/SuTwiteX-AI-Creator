@@ -2,11 +2,8 @@
 import React from 'react';
 import type { ViewType } from '../types';
 import HomeIcon from './icons/HomeIcon';
-import PlusCircleIcon from './icons/PlusCircleIcon';
 import LogoIcon from './icons/LogoIcon';
-// FIX: Import icons for new sidebar items
-import BarChartIcon from './icons/BarChartIcon';
-import CalendarIcon from './icons/CalendarIcon';
+import MediaIcon from './icons/MediaIcon';
 
 interface SidebarProps {
   activeView: ViewType;
@@ -14,15 +11,10 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView }) => {
-  // FIX: Add scheduler and analytics to navigation to provide access to all features.
   const navItems = [
     { id: 'dashboard', icon: <HomeIcon />, label: 'Dashboard' },
-    { id: 'create', icon: <PlusCircleIcon />, label: 'Create' },
-    { id: 'scheduler', icon: <CalendarIcon />, label: 'Scheduler' },
-    { id: 'analytics', icon: <BarChartIcon />, label: 'Analytics' },
+    { id: 'multimedia', icon: <MediaIcon />, label: 'Create Multimedia' },
   ];
-
-  const isCreateDashboardView = activeView === 'create' || activeView === 'dashboard';
 
   return (
     <div className="fixed top-0 left-0 h-full w-20 md:w-64 bg-bg-secondary border-r border-border-primary flex flex-col justify-between p-4 transition-all duration-300">
@@ -34,7 +26,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView }) => {
         <nav>
           <ul>
             {navItems.map((item) => {
-              const isActive = (isCreateDashboardView && (item.id === 'dashboard' || item.id === 'create')) || activeView === item.id;
+              const isActive = activeView === item.id;
               return (
                 <li key={item.id} className="mb-4">
                   <button

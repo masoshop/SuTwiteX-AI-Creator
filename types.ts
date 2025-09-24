@@ -58,7 +58,7 @@ export interface BufferProfile {
 }
 
 // FIX: Add ViewType for sidebar navigation.
-export type ViewType = 'dashboard' | 'create' | 'scheduler' | 'analytics';
+export type ViewType = 'dashboard' | 'multimedia';
 
 // FIX: Add AnalyticsDataPoint for analytics charts.
 export interface AnalyticsDataPoint {

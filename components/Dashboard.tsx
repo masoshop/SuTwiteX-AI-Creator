@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { generateTweet, generateTweetThread, proofreadThread, generateImage, generateVideo, summarizeUrl, summarizeFileContent, regenerateTweet } from '../services/geminiService';
 import { CreateMode } from '../types';
@@ -74,7 +75,6 @@ const Dashboard: React.FC = () => {
   const [mediaPrompt, setMediaPrompt] = useState('');
   const [mediaGenerationTarget, setMediaGenerationTarget] = useState<{type: 'image' | 'video', index: number} | null>(null);
 
-  const [imageAspectRatio, setImageAspectRatio] = useState<'1:1' | '16:9' | '9:16'>('16:9');
   const [videoStyle, setVideoStyle] = useState<'cinematic' | 'documentary' | 'animation'>('cinematic');
 
   useEffect(() => {
@@ -146,10 +146,6 @@ const Dashboard: React.FC = () => {
     const title = isThread ? 'Generating Thread...' : 'Generating Tweet...';
     const steps = ['Drafting content', 'Polishing tone', 'Finalizing output', 'Done!'];
     setGenerationStatus({ title, steps, currentStep: 0, error: null });
-
-    // Simulate progress for better UX
-    setTimeout(() => setGenerationStatus(prev => prev ? { ...prev, currentStep: 1 } : null), 1000);
-    setTimeout(() => setGenerationStatus(prev => prev ? { ...prev, currentStep: 2 } : null), 2500);
 
     let sourceToUse: Source | undefined;
     if (createMode === CreateMode.Link && linkUrl) {
@@ -242,7 +238,6 @@ const Dashboard: React.FC = () => {
     setMediaGenerationTarget({ type, index });
     const tweetContent = tweets[index]?.content?.trim() || '';
     setMediaPrompt(tweetContent || prompt); // Use main prompt as fallback
-    setImageAspectRatio('16:9');
     setVideoStyle('cinematic');
     setIsMediaPromptModalOpen(true);
   };
@@ -257,7 +252,7 @@ const Dashboard: React.FC = () => {
     if (!mediaGenerationTarget || !mediaPrompt) return;
     const { type, index } = mediaGenerationTarget;
     handleGenerateMedia(type, mediaPrompt, index, {
-        aspectRatio: imageAspectRatio,
+        aspectRatio: '16:9',
         videoStyle: videoStyle
     });
     closeMediaPromptModal();
@@ -480,7 +475,7 @@ const Dashboard: React.FC = () => {
           <div className="relative flex items-center" onMouseEnter={() => setIsVisible(true)} onMouseLeave={() => setIsVisible(false)}>
               {children}
               {isVisible && (
-                  <div className="absolute left-0 bottom-full mb-2 w-72 bg-bg-primary border border-border-primary text-text-secondary text-sm p-3 rounded-lg shadow-lg z-10 animate-fade-in">
+                  <div className="absolute left-0 bottom-full mb-2 w-72 bg-bg-secondary border border-border-primary text-text-secondary text-sm p-3 rounded-lg shadow-lg z-10 animate-fade-in">
                       {content}
                   </div>
               )}
@@ -505,7 +500,7 @@ const Dashboard: React.FC = () => {
                     <p className="text-sm text-center text-text-secondary mb-4">
                         Edit your thread in the preview panel on the right, then click here to get AI-powered suggestions.
                     </p>
-                    <button onClick={handleProofread} disabled={isProofreading || tweets.every(t => t.content.length === 0)} className="ai-button bg-success/80 hover:bg-success text-bg-primary w-full"><CheckIcon /> {isProofreading ? 'Checking...' : 'Proofread'}</button>
+                    <button onClick={handleProofread} disabled={isProofreading || tweets.every(t => t.content.length === 0)} className="ai-button bg-success/80 hover:bg-success text-white w-full"><CheckIcon /> {isProofreading ? 'Checking...' : 'Proofread'}</button>
                     {isProofreading && <p className="text-center text-sm text-text-secondary mt-2 animate-pulse">Checking for spelling and grammar...</p>}
                 </div>
                 {proofreadSuggestions.length > 0 && (
@@ -514,7 +509,7 @@ const Dashboard: React.FC = () => {
                             <h3 className="font-bold text-text-primary">AI Suggestions</h3>
                             <div className="flex gap-2">
                                 <button onClick={() => setProofreadSuggestions([])} className="ai-button bg-gray-600 hover:bg-gray-700 px-3 py-1 text-xs">Dismiss</button>
-                                <button onClick={handleAcceptAllSuggestions} className="ai-button bg-success/80 hover:bg-success text-bg-primary px-3 py-1 text-xs">Accept All</button>
+                                <button onClick={handleAcceptAllSuggestions} className="ai-button bg-success/80 hover:bg-success text-white px-3 py-1 text-xs">Accept All</button>
                             </div>
                         </div>
                         {tweets.map((tweet, index) => {
@@ -550,8 +545,8 @@ const Dashboard: React.FC = () => {
             <div className="mb-4">
                 <label htmlFor="linkUrl" className="text-sm font-semibold text-text-primary mb-2">Enter a URL to summarize</label>
                 <div className="flex gap-2">
-                    <input id="linkUrl" type="url" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://example.com/article" className="flex-grow bg-bg-primary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition" />
-                    <button onClick={handleFetchLink} disabled={isFetchingLink || !linkUrl} className="ai-button bg-success/80 hover:bg-success text-bg-primary px-4">{isFetchingLink ? '...' : 'Fetch & Summarize'}</button>
+                    <input id="linkUrl" type="url" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://example.com/article" className="flex-grow bg-bg-secondary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition" />
+                    <button onClick={handleFetchLink} disabled={isFetchingLink || !linkUrl} className="ai-button bg-success/80 hover:bg-success text-white px-4">{isFetchingLink ? '...' : 'Fetch & Summarize'}</button>
                 </div>
             </div>
         )}
@@ -573,14 +568,14 @@ const Dashboard: React.FC = () => {
                             <span className="text-xs text-text-secondary flex-shrink-0">({(uploadedFile.size / 1024).toFixed(1)} KB)</span>
                             {isSummarizingFile && <LoaderIcon className="h-4 w-4 text-accent-primary ml-2" />}
                         </div>
-                        <button onClick={() => { setUploadedFile(null); setPrompt(''); }} className="p-1 text-text-secondary hover:text-white rounded-full"><TrashIcon /></button>
+                        <button onClick={() => { setUploadedFile(null); setPrompt(''); }} className="p-1 text-text-secondary hover:text-text-primary rounded-full"><TrashIcon /></button>
                     </div>
                 )}
              </div>
         )}
 
       <label htmlFor="prompt" className="text-sm font-semibold text-text-primary mb-2">{createMode === CreateMode.File ? "What should the post be about? (using the file for context)" : "What do you want to post about?"}</label>
-      <textarea id="prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ejemplo: El futuro de la exploración espacial con IA..." className="w-full bg-bg-primary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition" rows={3} />
+      <textarea id="prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ejemplo: El futuro de la exploración espacial con IA..." className="w-full bg-bg-secondary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition" rows={3} />
       <div className="my-2">
         <InfoTooltip content={<>
             <p className="mb-1">Define tu Audiencia</p>
@@ -590,7 +585,7 @@ const Dashboard: React.FC = () => {
                 Público Objetivo (Opcional) <InfoIcon className="h-4 w-4 text-text-secondary" />
             </label>
         </InfoTooltip>
-        <input type="text" id="audience" value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="Ejemplo: Desarrolladores de Software, Expertos en Marketing Digital..." className="w-full bg-bg-primary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition" />
+        <input type="text" id="audience" value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="Ejemplo: Desarrolladores de Software, Expertos en Marketing Digital..." className="w-full bg-bg-secondary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition" />
       </div>
 
       <div className="my-4 border-t border-border-primary pt-4">
@@ -598,232 +593,249 @@ const Dashboard: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
                  <InfoTooltip content={<>
-                    <p className="mb-1">Elige la Voz del Contenido</p>
-                    <p>'Reflexivo y Articulado' es para un tono pensado y serio, 'Profesional' es formal, 'Humorístico' añade ingenio, y 'Inspirador' es motivacional. Piensa en cómo quieres que tu audiencia se sienta.</p>
+                    <p className="mb-1 font-bold">Elige la Voz del Contenido</p>
+                    <ul className="list-disc list-inside space-y-1">
+                      <li><strong>Autoridad:</strong> Tono experto y formal.</li>
+                      <li><strong>Narrativo:</strong> Conecta con historias y anécdotas.</li>
+                      <li><strong>Analítico:</strong> Desglosa datos y temas complejos.</li>
+                      <li><strong>Conversacional:</strong> Amigable y cercano, como hablando con un amigo.</li>
+                      <li><strong>Inspirador:</strong> Motivacional y positivo.</li>
+                    </ul>
                  </>}>
                     <label htmlFor="tone" className="text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
                         Tono <InfoIcon className="h-4 w-4 text-text-secondary" />
                     </label>
                 </InfoTooltip>
-                <select id="tone" value={tone} onChange={(e) => setTone(e.target.value)} className="w-full bg-bg-primary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition">
-                    <option value="default">Default (Reflexivo y Articulado)</option>
-                    <option value="professional">Profesional</option>
-                    <option value="humorous">Humorístico</option>
+                <select id="tone" value={tone} onChange={(e) => setTone(e.target.value)} className="w-full bg-bg-secondary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition">
+                    <option value="default">Neutral y Claro</option>
+                    <option value="authority">Autoridad</option>
+                    <option value="storytelling">Narrativo</option>
+                    <option value="analytical">Analítico</option>
+                    <option value="conversational">Conversacional</option>
                     <option value="inspirational">Inspirador</option>
                 </select>
             </div>
             <div>
                 <InfoTooltip content={<>
-                    <p className="mb-1">Selecciona una Estructura</p>
-                    <p>'Listado' crea una lista, 'Preguntas y Respuestas' formatea como preguntas y respuestas, y 'Tutorial' da instrucciones paso a paso. Ideal para simplificar información.</p>
+                    <p className="mb-1 font-bold">Selecciona una Estructura</p>
+                     <ul className="list-disc list-inside space-y-1">
+                      <li><strong>Anuncio:</strong> Ideal para noticias o lanzamientos.</li>
+                      <li><strong>Listado:</strong> Enumera puntos clave o recursos.</li>
+                      <li><strong>Guía Práctica:</strong> Tutoriales o guías paso a paso.</li>
+                      <li><strong>Pregunta Abierta:</strong> Fomenta el debate y la interacción.</li>
+                      <li><strong>Consejo Rápido:</strong> Ofrece un tip útil y conciso.</li>
+                    </ul>
                 </>}>
                     <label htmlFor="format" className="text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
                         Formato <InfoIcon className="h-4 w-4 text-text-secondary" />
                     </label>
                 </InfoTooltip>
-                <select id="format" value={format} onChange={(e) => setFormat(e.target.value)} className="w-full bg-bg-primary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition">
-                    <option value="default">Post Normal</option>
+                 <select id="format" value={format} onChange={(e) => setFormat(e.target.value)} className="w-full bg-bg-secondary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition">
+                    <option value="default">Estándar</option>
+                    <option value="announcement">Anuncio</option>
                     <option value="listicle">Listado</option>
-                    <option value="qa">Preguntas y Respuestas</option>
-                    <option value="tutorial">Tutorial / Cómo hacerlo</option>
+                    <option value="how_to">Guía Práctica</option>
+                    <option value="question">Pregunta Abierta</option>
+                    <option value="quick_tip">Consejo Rápido</option>
                 </select>
             </div>
-        </div>
-        <div className="mt-4">
-            <InfoTooltip content={<>
-                <p className="mb-1">Integra Palabras Clave</p>
-                <p>Introduce términos que quieres incluir. La inteligencia artificial los integrará naturalmente para mejorar la visibilidad en búsquedas (SEO). Separa múltiples palabras con comas.</p>
-            </>}>
-                 <label htmlFor="keywords" className="text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
-                    Palabras Clave SEO (separadas por coma) <InfoIcon className="h-4 w-4 text-text-secondary" />
-                </label>
-            </InfoTooltip>
-            <input type="text" id="keywords" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="Ejemplo: IA, machine learning, tecnología..." className="w-full bg-bg-primary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition" />
+             <div>
+                <InfoTooltip content={<>
+                    <p className="mb-1">Define Palabras Clave</p>
+                    <p>Introduce palabras o frases clave separadas por comas (ejemplo: 'IA generativa, marketing de contenidos') para asegurar que se incluyan en el contenido generado.</p>
+                </>}>
+                    <label htmlFor="keywords" className="text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
+                        Palabras Clave (Opcional) <InfoIcon className="h-4 w-4 text-text-secondary" />
+                    </label>
+                </InfoTooltip>
+                <input type="text" id="keywords" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="Ej: IA generativa, marketing..." className="w-full bg-bg-secondary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition" />
+            </div>
         </div>
       </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 my-4">
-          <button onClick={() => handleGenerate('tweet')} disabled={isLoading || !prompt} className="ai-button"><SparklesIcon /> Generate Tweet</button>
-          <button onClick={() => handleGenerate('thread')} disabled={isLoading || !prompt} className="ai-button"><SparklesIcon /> Generate Thread</button>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 my-4">
+        <button onClick={() => handleGenerate('tweet')} disabled={isLoading || !prompt.trim()} className="ai-button">
+            <SparklesIcon /> {isLoading ? 'Generando...' : 'Generar Tweet'}
+        </button>
+        <button onClick={() => handleGenerate('thread')} disabled={isLoading || !prompt.trim()} className="ai-button">
+            <SparklesIcon /> {isLoading ? 'Generando...' : 'Generar Hilo'}
+        </button>
       </div>
       </>
     )
-  }
-
-  const OptionButton: React.FC<{ onClick: () => void; isActive: boolean; children: React.ReactNode }> = ({ onClick, isActive, children }) => (
-    <button
-        onClick={onClick}
-        className={`flex-1 p-2 rounded-lg text-sm font-semibold transition-colors ${isActive ? 'bg-accent-primary text-bg-primary' : 'bg-bg-primary hover:bg-bg-primary/50 border border-border-primary'}`}
-    >
-        {children}
-    </button>
-  );
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-7xl mx-auto">
-       <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileUpload}
-        className="hidden"
-        accept="image/*,video/*"
-      />
+      {/* --- CREATION PANEL --- */}
+      <div className="bg-bg-secondary p-4 sm:p-6 rounded-xl border border-border-primary flex flex-col shadow-sm" ref={creationPanelRef}>
+        <div className="flex border-b border-border-primary">
+            <ModeButton mode={CreateMode.Text} label="Texto" icon={<TextIcon />} />
+            <ModeButton mode={CreateMode.Link} label="Enlace" icon={<LinkIcon />} />
+            <ModeButton mode={CreateMode.File} label="Archivo" icon={<PaperclipIcon />} />
+            <ModeButton mode={CreateMode.Proofread} label="Corregir" icon={<CheckIcon />} />
+        </div>
+        <div className="flex-grow flex flex-col py-4">
+            {generationStatus ? (
+                <GenerationStatus title={generationStatus.title} steps={generationStatus.steps} currentStepIndex={generationStatus.currentStep} error={generationStatus.error} />
+            ) : (
+                renderCreationPanel()
+            )}
+        </div>
+        <div className="flex gap-4 mt-auto pt-4 border-t border-border-primary">
+            <button onClick={handleSaveDraft} className="flex-1 py-3 bg-transparent border border-accent-primary text-accent-primary rounded-full font-bold hover:bg-accent-primary/10 transition">{saveButtonText}</button>
+            <div className="flex">
+              <button onClick={() => handleShare('x')} className="py-3 px-6 bg-text-primary text-bg-secondary rounded-l-full font-bold hover:opacity-90 transition"><XLogoIcon className="h-5 w-5"/></button>
+              <button onClick={() => handleShare('buffer')} className="py-3 px-6 bg-accent-primary text-bg-secondary rounded-r-full font-bold hover:opacity-90 transition"><BufferIcon className="h-5 w-5"/></button>
+            </div>
+        </div>
+      </div>
 
-      {isMediaPromptModalOpen && (
+      {/* --- PREVIEW & DRAFTS PANEL --- */}
+      <div className="space-y-8">
+        <div>
+            <h2 className="text-xl font-bold mb-4">Vista Previa</h2>
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                {tweets.map((tweet, index) => {
+                    const previewTweet = {
+                        id: tweet.id,
+                        content: tweet.content,
+                        author: DEFAULT_USER,
+                        media: tweet.media || undefined,
+                        stats: { likes: 0, retweets: 0, impressions: 0, replies: 0 },
+                        postedAt: new Date(),
+                    };
+                    return (
+                        <div key={tweet.id} ref={el => tweetPreviewRefs.current[index] = el}>
+                            <TweetPreview
+                                tweet={previewTweet}
+                                editableTweet={tweet}
+                                isGenerating={isLoading}
+                                onCopy={() => handleCopy(tweet.content, index)}
+                                onGenerateMedia={(type) => openMediaPromptModal(type, index)}
+                                onUploadMedia={() => {
+                                    setMediaTargetIndex(index);
+                                    fileInputRef.current?.click();
+                                }}
+                                onRemoveMedia={() => handleRemoveMedia(index)}
+                                onTweetChange={(value) => handleTweetChange(index, value)}
+                                onRegenerate={() => handleRegenerateTweet(index)}
+                                onDeleteTweet={() => handleDeleteTweet(index)}
+                            />
+                        </div>
+                    );
+                })}
+            </div>
+             {tweets.length > 1 && (
+                <button onClick={addTweetToThread} className="mt-4 text-accent-primary font-semibold hover:underline self-start">
+                    + Añadir al hilo
+                </button>
+            )}
+        </div>
+        <DraftsPanel drafts={drafts} onLoad={handleLoadDraft} onDelete={handleDeleteDraft} />
+      </div>
+
+      <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*,video/*" />
+
+       {isMediaPromptModalOpen && (
         <div className="fixed inset-0 bg-bg-primary/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
             <div className="bg-bg-secondary border border-border-primary rounded-xl p-6 w-full max-w-lg relative shadow-2xl shadow-black/50">
-                <h3 className="text-xl font-bold mb-4">Describe the {mediaGenerationTarget?.type} you want to create</h3>
-                <p className="text-sm text-text-secondary mb-4">Provide a detailed prompt to guide the AI in generating the perfect visual for your tweet.</p>
-                <textarea 
+                <h2 className="text-xl font-bold mb-4">Generate {mediaGenerationTarget?.type === 'image' ? 'Image' : 'Video'}</h2>
+                <textarea
                     value={mediaPrompt}
                     onChange={(e) => setMediaPrompt(e.target.value)}
-                    placeholder="Ejemplo: Un robot futurista pintando una obra maestra en un lienzo en el espacio..."
+                    placeholder="Enter a prompt for the media..."
                     className="w-full bg-bg-primary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition"
-                    rows={4} 
+                    rows={4}
                 />
-
-                <div className="my-4 space-y-4">
-                    {mediaGenerationTarget?.type === 'image' && (
-                        <div>
-                            <label className="text-sm font-semibold text-text-primary mb-2 block">Aspect Ratio</label>
-                            <div className="flex gap-2">
-                                <OptionButton onClick={() => setImageAspectRatio('1:1')} isActive={imageAspectRatio === '1:1'}>Square</OptionButton>
-                                <OptionButton onClick={() => setImageAspectRatio('16:9')} isActive={imageAspectRatio === '16:9'}>Landscape</OptionButton>
-                                <OptionButton onClick={() => setImageAspectRatio('9:16')} isActive={imageAspectRatio === '9:16'}>Portrait</OptionButton>
-                            </div>
+                {mediaGenerationTarget?.type === 'image' && (
+                  <div className="mt-4 text-sm text-text-secondary p-2 bg-bg-primary rounded-lg border border-border-primary">
+                    <p>🖼️ La imagen se generará en formato horizontal (16:9), ideal para X.</p>
+                  </div>
+                )}
+                {mediaGenerationTarget?.type === 'video' && (
+                    <div className="mt-4">
+                        <label className="text-sm font-semibold text-text-primary mb-2 block">Video Style</label>
+                        <div className="flex gap-2">
+                             {(['cinematic', 'documentary', 'animation'] as const).map(style => (
+                                <button key={style} onClick={() => setVideoStyle(style)} className={`flex-1 p-2 rounded-lg border-2 capitalize ${videoStyle === style ? 'border-accent-primary bg-accent-primary/10' : 'border-border-primary hover:border-text-secondary'}`}>
+                                    {style}
+                                </button>
+                            ))}
                         </div>
-                    )}
-                    {mediaGenerationTarget?.type === 'video' && (
-                         <div>
-                            <label className="text-sm font-semibold text-text-primary mb-2 block">Video Style</label>
-                            <div className="flex gap-2">
-                                <OptionButton onClick={() => setVideoStyle('cinematic')} isActive={videoStyle === 'cinematic'}>Cinematic</OptionButton>
-                                <OptionButton onClick={() => setVideoStyle('documentary')} isActive={videoStyle === 'documentary'}>Documentary</OptionButton>
-                                <OptionButton onClick={() => setVideoStyle('animation')} isActive={videoStyle === 'animation'}>Animation</OptionButton>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                <div className="flex justify-end gap-3 mt-4">
-                    <button onClick={closeMediaPromptModal} className="ai-button bg-transparent border border-text-secondary text-text-secondary hover:bg-text-secondary/10">Cancel</button>
-                    <button onClick={handleConfirmMediaGeneration} disabled={!mediaPrompt || isLoading} className="ai-button">
-                        <SparklesIcon /> {isLoading ? 'Generating...' : 'Generate'}
-                    </button>
+                    </div>
+                )}
+                <div className="flex justify-end gap-3 mt-6">
+                    <button onClick={closeMediaPromptModal} className="ai-button bg-bg-primary hover:bg-border-primary/50 text-text-primary px-6">Cancel</button>
+                    <button onClick={handleConfirmMediaGeneration} disabled={!mediaPrompt} className="ai-button bg-accent-primary hover:opacity-90 text-white px-6">Generate</button>
                 </div>
             </div>
         </div>
       )}
 
-      {/* --- CREATION PANEL --- */}
-      <div ref={creationPanelRef} className="bg-bg-secondary/80 backdrop-blur-sm p-6 rounded-xl border border-border-primary flex flex-col">
-        <h1 className="text-2xl font-bold mb-4">Create a new Post</h1>
-
-        {generationStatus && (
-            <div className="my-4">
-                <GenerationStatus
-                    title={generationStatus.title}
-                    steps={generationStatus.steps}
-                    currentStepIndex={generationStatus.currentStep}
-                    error={generationStatus.error}
-                />
-            </div>
-        )}
-
-        <fieldset disabled={isLoading} className="flex-grow flex flex-col min-h-0">
-            <div className="flex border-b border-border-primary mb-4">
-                <ModeButton mode={CreateMode.Text} label="Text" icon={<TextIcon />} />
-                <ModeButton mode={CreateMode.Link} label="Link" icon={<LinkIcon />} />
-                <ModeButton mode={CreateMode.File} label="File" icon={<UploadIcon />} />
-                <ModeButton mode={CreateMode.Proofread} label="Proofread" icon={<CheckIcon />} />
-            </div>
-
-            <div className="flex-grow flex flex-col">
-                {renderCreationPanel()}
-            </div>
-        </fieldset>
-      </div>
-
-      {/* --- PREVIEW PANEL --- */}
-      <div>
-        <h2 className="text-xl font-bold mb-4">Preview</h2>
-        <div className="space-y-4">
-          {tweets.map((tweet, index) => (
-            // FIX: The ref callback was implicitly returning the element, which is not allowed. Changed to a block statement to ensure a 'void' return type.
-            <div key={tweet.id} ref={el => { tweetPreviewRefs.current[index] = el; }}>
-                <TweetPreview 
-                  tweet={{ 
-                    id: tweet.id, 
-                    content: tweet.content, 
-                    author: DEFAULT_USER, 
-                    media: tweet.media || undefined, 
-                    stats: { likes: 0, retweets: 0, impressions: 0, replies: 0 }, 
-                    postedAt: new Date() 
-                  }}
-                  isGenerating={isLoading}
-                  editableTweet={tweet}
-                  onCopy={() => handleCopy(tweet.content, index)}
-                  onGenerateMedia={(type) => openMediaPromptModal(type, index)}
-                  onUploadMedia={() => { setMediaTargetIndex(index); fileInputRef.current?.click(); }}
-                  onRemoveMedia={() => handleRemoveMedia(index)}
-                  onTweetChange={(value) => handleTweetChange(index, value)}
-                  onRegenerate={() => handleRegenerateTweet(index)}
-                  onDeleteTweet={() => handleDeleteTweet(index)}
-                />
-            </div>
-          ))}
-        </div>
-
-        <button onClick={addTweetToThread} className="mt-4 text-accent-primary font-semibold hover:underline self-start disabled:cursor-not-allowed disabled:opacity-50">+ Add to Thread</button>
-
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <button 
-                onClick={handleSaveDraft}
-                disabled={isLoading || saveButtonText === 'Draft Saved!'} 
-                className="w-full py-3 bg-transparent border border-accent-secondary text-accent-secondary rounded-full font-bold hover:bg-accent-secondary/10 transition disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-1"
-              >
-                {saveButtonText}
-            </button>
-            <button 
-                onClick={() => handleShare('x')}
-                className="w-full py-3 bg-bg-primary text-text-primary border border-border-primary rounded-full font-bold hover:bg-border-primary transition flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-1"
-                disabled={tweets.every(t => t.content.trim() === '') || isLoading}
-            >
-                <XLogoIcon className="h-5 w-5" /> Share on X
-            </button>
-            <button 
-                onClick={() => handleShare('buffer')}
-                className="w-full py-3 bg-accent-primary text-bg-primary rounded-full font-bold hover:bg-accent-primary/90 transition flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-1"
-                disabled={tweets.every(t => t.content.trim() === '') || isLoading}
-            >
-                <BufferIcon className="h-5 w-5" /> Share on Buffer
-            </button>
-        </div>
-        
-        <div className="mt-8">
-            <DraftsPanel
-                drafts={drafts}
-                onLoad={handleLoadDraft}
-                onDelete={handleDeleteDraft}
-            />
-        </div>
-
-      </div>
-
-      {/* FIX: Replace 'tailwind' variables with hardcoded hex colors to resolve reference errors. The color values are inferred from other components and a conventional dark theme. */}
       <style>{`
-          .ai-button { display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.75rem; border-radius: 9999px; font-weight: bold; transition: all 0.2s; background-color: #5A67D8; color: white; text-align: center; white-space: nowrap; }
-          .ai-button:hover:not(:disabled) { opacity: 0.9; }
-          .ai-button:disabled { opacity: 0.5; cursor: not-allowed; }
-          .action-button { background-color: #374151; color: white; border-radius: 9999px; padding: 0.5rem; transition: all 0.2s; display: flex; align-items: center; justify-content: center; min-height: 36px; gap: 0.5rem; font-weight: 600; font-size: 0.875rem; }
-          .action-button:hover:not(:disabled) { background-color: #374151; filter: brightness(1.2); }
-          .action-button:disabled { opacity: 0.5; cursor: not-allowed; }
-          .overflow-y-auto::-webkit-scrollbar { width: 8px; }
-          .overflow-y-auto::-webkit-scrollbar-track { background: #1F2937; }
-          .overflow-y-auto::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
-          .overflow-y-auto::-webkit-scrollbar-thumb:hover { background: #5A67D8; }
-          .animate-fade-in { animation: fadeIn 0.5s ease-in-out; }
-          @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+          .ai-button {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 0.5rem;
+              padding: 0.75rem;
+              border-radius: 9999px;
+              font-weight: bold;
+              transition: all 0.2s;
+              background-color: #3B82F6;
+              color: white;
+              text-align: center;
+              white-space: nowrap;
+          }
+          .ai-button:hover:not(:disabled) {
+              opacity: 0.9;
+          }
+          .ai-button:disabled {
+              opacity: 0.5;
+              cursor: not-allowed;
+          }
+           .action-button {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 0.5rem;
+              padding: 0.5rem;
+              border-radius: 0.5rem;
+              font-weight: 600;
+              font-size: 0.875rem;
+              transition: all 0.2s;
+              background-color: #F3F4F6;
+              color: #374151;
+              border: 1px solid #E5E7EB;
+          }
+          .action-button:hover:not(:disabled) {
+              background-color: #E5E7EB;
+              color: #111827;
+          }
+           .action-button:disabled {
+              opacity: 0.5;
+              cursor: not-allowed;
+           }
+          .overflow-y-auto::-webkit-scrollbar {
+            width: 8px;
+          }
+          .overflow-y-auto::-webkit-scrollbar-track {
+            background: transparent; 
+          }
+          .overflow-y-auto::-webkit-scrollbar-thumb {
+            background: #D1D5DB; 
+            border-radius: 4px;
+          }
+          .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+            background: #9CA3AF;
+          }
+          .animate-fade-in {
+            animation: fadeIn 0.3s ease-in-out;
+          }
+          @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
       `}</style>
     </div>
   );
