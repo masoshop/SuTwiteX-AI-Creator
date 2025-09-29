@@ -1,8 +1,9 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { generateTweet, generateTweetThread, proofreadThread, generateImage, generateVideo, summarizeUrl, summarizeFileContent, regenerateTweet } from '../services/geminiService';
+import type { Chat } from "@google/genai";
+import { createChatSession, getSystemInstructionTweet, getSystemInstructionThread, proofreadThread, generateImage, generateVideo, summarizeUrl, summarizeFileContent, regenerateTweet } from '../services/geminiService';
 import { CreateMode } from '../types';
-import type { Source, XUserProfile, EditableTweet, Draft } from '../types';
+import type { Source, XUserProfile, EditableTweet, Draft, BrandVoiceProfile, ChatMessage } from '../types';
 import TweetPreview from './TweetPreview';
 import TextIcon from './icons/TextIcon';
 import LinkIcon from './icons/LinkIcon';
@@ -19,8 +20,8 @@ import PaperclipIcon from './icons/PaperclipIcon';
 import GenerationStatus from './GenerationStatus';
 import LoaderIcon from './icons/LoaderIcon';
 import DraftsPanel from './DraftsPanel';
-
-const MAX_CHARS = 280;
+import BrandVoiceModal from './BrandVoiceModal';
+import ChatHistory from './ChatHistory';
 
 const DEFAULT_USER: XUserProfile = {
   name: 'Preview User',
@@ -41,7 +42,7 @@ const fileToBase64 = (file: File): Promise<string> => {
     });
 }
 
-const Dashboard: React.FC = () => {
+const ContentStudio: React.FC = () => {
   const [createMode, setCreateMode] = useState<CreateMode>(CreateMode.Text);
   const [prompt, setPrompt] = useState('');
   const [audience, setAudience] = useState('');
@@ -73,15 +74,31 @@ const Dashboard: React.FC = () => {
   const [isMediaPromptModalOpen, setIsMediaPromptModalOpen] = useState(false);
   const [mediaPrompt, setMediaPrompt] = useState('');
   const [mediaGenerationTarget, setMediaGenerationTarget] = useState<{type: 'image' | 'video', index: number} | null>(null);
-
   const [videoStyle, setVideoStyle] = useState<'cinematic' | 'documentary' | 'animation'>('cinematic');
+
+  const [isBrandVoiceModalOpen, setIsBrandVoiceModalOpen] = useState(false);
+  const [brandVoiceProfile, setBrandVoiceProfile] = useState<BrandVoiceProfile | null>(null);
+  
+  const [chatSession, setChatSession] = useState<Chat | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+
 
   useEffect(() => {
     const savedDrafts = localStorage.getItem('sutwitex-drafts');
     if (savedDrafts) {
       setDrafts(JSON.parse(savedDrafts));
     }
+    const savedProfile = localStorage.getItem('sutwitex-brand-voice');
+    if (savedProfile) {
+      setBrandVoiceProfile(JSON.parse(savedProfile));
+    }
   }, []);
+
+  const handleSaveBrandVoice = (profile: BrandVoiceProfile) => {
+    setBrandVoiceProfile(profile);
+    localStorage.setItem('sutwitex-brand-voice', JSON.stringify(profile));
+  };
 
   const handleSaveDraft = () => {
     const hasContent = tweets.some(t => t.content.trim() !== '') || prompt.trim() !== '';
@@ -119,6 +136,8 @@ const Dashboard: React.FC = () => {
       setLinkUrl('');
       setUploadedFile(null);
       setProofreadSuggestions([]);
+      setChatSession(null);
+      setChatMessages([]);
       creationPanelRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   };
@@ -138,57 +157,102 @@ const Dashboard: React.FC = () => {
   const addTweetToThread = () => {
     setTweets([...tweets, { id: `tweet-${Date.now()}`, content: '', media: null, isLoadingMedia: false, isCopied: false, isRegenerating: false }]);
   };
+  
+  const parseAIResponse = (response: string, isThread: boolean): string[] => {
+    try {
+        if (isThread) {
+            const jsonStr = response.trim();
+            const result = JSON.parse(jsonStr);
+            return result.thread || [];
+        }
+        return [response];
+    } catch (error) {
+        console.error("Failed to parse AI response:", error, "Raw response:", response);
+        if (isThread) {
+             return response.split('\n').filter(line => line.trim() !== '');
+        }
+        return [response];
+    }
+  };
 
   const handleGenerate = useCallback(async (type: 'tweet' | 'thread') => {
     setIsLoading(true);
+    setChatMessages([]);
     const isThread = type === 'thread';
-    const title = isThread ? 'Generating Thread...' : 'Generating Tweet...';
-    const steps = ['Drafting content', 'Polishing tone', 'Finalizing output', 'Done!'];
+    const title = isThread ? 'Generando Hilo...' : 'Generando Tuit...';
+    const steps = ['Redactando contenido', 'Puliendo el tono', 'Finalizando', '¡Listo!'];
     setGenerationStatus({ title, steps, currentStep: 0, error: null });
-
-    let sourceToUse: Source | undefined;
-    if (createMode === CreateMode.Link && linkUrl) {
-      sourceToUse = { web: { uri: linkUrl, title: 'External Link' } };
-    }
-    
-    let fileToUse: { mimeType: string, data: string } | undefined;
-    if (createMode === CreateMode.File && uploadedFile) {
-        try {
-            const base64Data = await fileToBase64(uploadedFile);
-            fileToUse = { mimeType: uploadedFile.type, data: base64Data };
-        } catch (error) {
-            console.error("Error reading file:", error);
-            setGenerationStatus(prev => prev ? { ...prev, error: "Failed to read the uploaded file." } : null);
-            setIsLoading(false);
-            return;
-        }
-    }
 
     const audienceToUse = audience.trim() || undefined;
     const toneToUse = tone === 'default' ? undefined : tone;
     const formatToUse = format === 'default' ? undefined : format;
     const keywordsToUse = keywords.trim() || undefined;
+    
+    const systemInstruction = isThread 
+        ? getSystemInstructionThread(audienceToUse, toneToUse, formatToUse, keywordsToUse, brandVoiceProfile || undefined)
+        : getSystemInstructionTweet(audienceToUse, toneToUse, formatToUse, keywordsToUse, brandVoiceProfile || undefined);
+        
+    const chat = createChatSession(systemInstruction, isThread);
+    setChatSession(chat);
+
+    let fullPrompt = prompt;
+    if (createMode === CreateMode.Link && linkUrl) {
+      fullPrompt = `Basado en la información del artículo en ${linkUrl}, escribe sobre: ${prompt}`;
+    }
 
     try {
-        const results = isThread
-            ? await generateTweetThread(prompt, sourceToUse, audienceToUse, fileToUse, toneToUse, formatToUse, keywordsToUse)
-            : [await generateTweet(prompt, sourceToUse, audienceToUse, fileToUse, toneToUse, formatToUse, keywordsToUse)];
-        
+        setChatMessages([{ author: 'user', content: fullPrompt }]);
+        const response = await chat.sendMessage({ message: fullPrompt });
         setGenerationStatus(prev => prev ? { ...prev, currentStep: 3 } : null);
+
+        const results = parseAIResponse(response.text, isThread);
 
         if (results.length > 0) {
             setTweets(results.map((content, i) => ({ id: `tweet-${i}`, content, media: null, isLoadingMedia: false, isCopied: false, isRegenerating: false })));
         } else {
-             throw new Error("The AI returned an empty response.");
+             throw new Error("La IA devolvió una respuesta vacía.");
         }
     } catch (error) {
-         const message = error instanceof Error ? error.message : "An unknown error occurred.";
+         const message = error instanceof Error ? error.message : "Ocurrió un error desconocido.";
          setGenerationStatus(prev => prev ? { ...prev, currentStep: steps.length, error: message } : null);
+         setChatSession(null);
     } finally {
         setIsLoading(false);
         setTimeout(() => setGenerationStatus(null), 5000); 
     }
-  }, [prompt, createMode, linkUrl, audience, uploadedFile, tone, format, keywords]);
+  }, [prompt, createMode, linkUrl, audience, tone, format, keywords, brandVoiceProfile]);
+  
+  const handleSendRefinement = async (message: string) => {
+    if (!chatSession) return;
+    
+    setIsChatLoading(true);
+    const isThread = tweets.length > 1;
+    const fullMessage = `Aquí está mi petición de refinamiento: "${message}". Por favor, regenera el tuit/hilo entero basándote en esto y proporciona la salida completa en el formato original ${isThread ? 'JSON' : 'de texto crudo'}.`;
+    
+    setChatMessages(prev => [...prev, { author: 'user', content: message }]);
+
+    try {
+      const response = await chatSession.sendMessage({ message: fullMessage });
+      const results = parseAIResponse(response.text, isThread);
+
+      if (results.length > 0) {
+        setTweets(prev => results.map((content, i) => ({
+            ...(prev[i] || {}),
+            id: prev[i]?.id || `tweet-${i}`,
+            content,
+            isCopied: false,
+            isRegenerating: false,
+        })));
+      } else {
+        throw new Error("La IA devolvió una respuesta vacía.");
+      }
+    } catch (error) {
+       const errorMessage = error instanceof Error ? error.message : "Ocurrió un error desconocido.";
+       setChatMessages(prev => [...prev, { author: 'ai', content: `Lo siento, ocurrió un error: ${errorMessage}` }]);
+    } finally {
+        setIsChatLoading(false);
+    }
+  };
 
   const handleFetchLink = async () => {
       if (!linkUrl) return;
@@ -220,7 +284,7 @@ const Dashboard: React.FC = () => {
       setTweets(newTweets);
       
       const newSuggestions = [...proofreadSuggestions];
-      newSuggestions[index] = newTweets[index].content; // Mark as accepted
+      newSuggestions[index] = newTweets[index].content;
       setProofreadSuggestions(newSuggestions);
   };
 
@@ -236,7 +300,7 @@ const Dashboard: React.FC = () => {
   const openMediaPromptModal = (type: 'image' | 'video', index: number) => {
     setMediaGenerationTarget({ type, index });
     const tweetContent = tweets[index]?.content?.trim() || '';
-    setMediaPrompt(tweetContent || prompt); // Use main prompt as fallback
+    setMediaPrompt(tweetContent || prompt);
     setVideoStyle('cinematic');
     setIsMediaPromptModalOpen(true);
   };
@@ -263,7 +327,6 @@ const Dashboard: React.FC = () => {
     tweetIndex: number,
     options: { aspectRatio?: string, videoStyle?: string } = {}
   ) => {
-    // Ensure the target tweet is in view before starting.
     tweetPreviewRefs.current[tweetIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   
     setTweets(prevTweets => {
@@ -275,8 +338,8 @@ const Dashboard: React.FC = () => {
     
     try {
         if (type === 'image') {
-            const steps = ['Composing prompt', 'Generating pixels', 'Rendering image', 'Done!'];
-            setGenerationStatus({ title: 'Generating Image...', steps, currentStep: 0, error: null });
+            const steps = ['Componiendo prompt', 'Generando píxeles', 'Renderizando imagen', '¡Listo!'];
+            setGenerationStatus({ title: 'Generando Imagen...', steps, currentStep: 0, error: null });
             setTimeout(() => setGenerationStatus(prev => prev ? { ...prev, currentStep: 1 } : null), 1000);
 
             const base64Data = await generateImage(mediaPrompt, options.aspectRatio);
@@ -290,8 +353,8 @@ const Dashboard: React.FC = () => {
             setGenerationStatus(prev => prev ? { ...prev, currentStep: 3 } : null);
 
         } else {
-            const videoSteps = ['Starting up', 'AI processing', 'Generating frames', 'Finalizing video', 'Done!'];
-            setGenerationStatus({ title: 'Generating Video...', steps: videoSteps, currentStep: 0, error: null });
+            const videoSteps = ['Iniciando', 'Procesando IA', 'Generando fotogramas', 'Finalizando video', '¡Listo!'];
+            setGenerationStatus({ title: 'Generando Video...', steps: videoSteps, currentStep: 0, error: null });
 
             const onProgress = (message: string) => {
               setGenerationStatus(prevStatus => {
@@ -331,7 +394,6 @@ const Dashboard: React.FC = () => {
         });
         setTimeout(() => setGenerationStatus(null), 5000);
         
-        // Re-center the view on the tweet after media is loaded and state is updated.
         setTimeout(() => {
           tweetPreviewRefs.current[tweetIndex]?.scrollIntoView({
             behavior: 'smooth',
@@ -364,7 +426,7 @@ const Dashboard: React.FC = () => {
     setTweets(newTweets);
     
     setMediaTargetIndex(null);
-    if(event.target) event.target.value = ''; // Allow re-uploading the same file
+    if(event.target) event.target.value = '';
   };
 
   const handleContextFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -372,7 +434,7 @@ const Dashboard: React.FC = () => {
     if (file) {
       setUploadedFile(file);
       setIsSummarizingFile(true);
-      setPrompt("🧠 Summarizing file content, please wait...");
+      setPrompt("🧠 Resumiendo el contenido del archivo, por favor espera...");
       try {
         const base64Data = await fileToBase64(file);
         const filePart = { mimeType: file.type, data: base64Data };
@@ -380,7 +442,7 @@ const Dashboard: React.FC = () => {
         setPrompt(summary);
       } catch (e) {
         const message = e instanceof Error ? e.message : "An unknown error occurred.";
-        setPrompt(`Error: Could not read or summarize the file. Details: ${message}`);
+        setPrompt(`Error: No se pudo leer o resumir el archivo. Detalles: ${message}`);
       } finally {
         setIsSummarizingFile(false);
       }
@@ -426,17 +488,14 @@ const Dashboard: React.FC = () => {
         setTweets(prev => prev.map((t, i) => i === index ? { ...t, content: regeneratedContent, isRegenerating: false } : t));
     } catch (error) {
         console.error("Error regenerating tweet:", error);
-        // In a real app, show a toast notification with the error.
         setTweets(prev => prev.map((t, i) => i === index ? { ...t, isRegenerating: false } : t));
     }
   };
 
   const handleDeleteTweet = (index: number) => {
     if (tweets.length === 1) {
-      // If it's the last tweet, just clear it instead of removing it.
       setTweets([{ id: `tweet-0`, content: '', media: null, isLoadingMedia: false, isCopied: false, isRegenerating: false }]);
     } else {
-      // Otherwise, remove it from the thread.
       setTweets(prevTweets => prevTweets.filter((_, i) => i !== index));
     }
   };
@@ -449,6 +508,8 @@ const Dashboard: React.FC = () => {
     setUploadedFile(null);
     setProofreadSuggestions([]);
     setTweets([{ id: `tweet-0`, content: '', media: null, isLoadingMedia: false, isCopied: false, isRegenerating: false }]);
+    setChatSession(null);
+    setChatMessages([]);
   };
 
   const handleShare = () => {
@@ -459,6 +520,17 @@ const Dashboard: React.FC = () => {
 
     const url = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleStartNew = () => {
+    setChatSession(null);
+    setChatMessages([]);
+    setTweets([{ id: `tweet-0`, content: '', media: null, isLoadingMedia: false, isCopied: false, isRegenerating: false }]);
+    setPrompt('');
+    setAudience('');
+    setLinkUrl('');
+    setUploadedFile(null);
+    setProofreadSuggestions([]);
   };
 
   const InfoTooltip: React.FC<{ content: React.ReactNode }> = ({ content, children }) => {
@@ -490,18 +562,18 @@ const Dashboard: React.FC = () => {
             <>
                 <div className="my-4">
                     <p className="text-sm text-center text-text-secondary mb-4">
-                        Edit your thread in the preview panel on the right, then click here to get AI-powered suggestions.
+                        Edita tu hilo en el panel de vista previa de la derecha, luego haz clic aquí para obtener sugerencias de la IA.
                     </p>
-                    <button onClick={handleProofread} disabled={isProofreading || tweets.every(t => t.content.length === 0)} className="ai-button bg-success/80 hover:bg-success text-white w-full"><CheckIcon /> {isProofreading ? 'Checking...' : 'Proofread'}</button>
-                    {isProofreading && <p className="text-center text-sm text-text-secondary mt-2 animate-pulse">Checking for spelling and grammar...</p>}
+                    <button onClick={handleProofread} disabled={isProofreading || tweets.every(t => t.content.length === 0)} className="ai-button bg-success/80 hover:bg-success text-white w-full"><CheckIcon /> {isProofreading ? 'Revisando...' : 'Revisar Ortografía'}</button>
+                    {isProofreading && <p className="text-center text-sm text-text-secondary mt-2 animate-pulse">Revisando ortografía y gramática...</p>}
                 </div>
                 {proofreadSuggestions.length > 0 && (
                      <div className="mt-4 border-t border-border-primary pt-4 animate-fade-in space-y-4 max-h-96 overflow-y-auto pr-2">
                         <div className="flex justify-between items-center">
-                            <h3 className="font-bold text-text-primary">AI Suggestions</h3>
+                            <h3 className="font-bold text-text-primary">Sugerencias de la IA</h3>
                             <div className="flex gap-2">
-                                <button onClick={() => setProofreadSuggestions([])} className="ai-button bg-gray-600 hover:bg-gray-700 px-3 py-1 text-xs">Dismiss</button>
-                                <button onClick={handleAcceptAllSuggestions} className="ai-button bg-success/80 hover:bg-success text-white px-3 py-1 text-xs">Accept All</button>
+                                <button onClick={() => setProofreadSuggestions([])} className="ai-button bg-gray-600 hover:bg-gray-700 px-3 py-1 text-xs">Descartar</button>
+                                <button onClick={handleAcceptAllSuggestions} className="ai-button bg-success/80 hover:bg-success text-white px-3 py-1 text-xs">Aceptar Todo</button>
                             </div>
                         </div>
                         {tweets.map((tweet, index) => {
@@ -514,12 +586,12 @@ const Dashboard: React.FC = () => {
 
                              return (
                                  <div key={tweet.id} className="bg-bg-primary p-3 rounded-lg border border-border-primary">
-                                     <p className="text-xs font-bold text-text-secondary mb-2">Tweet {index + 1}</p>
+                                     <p className="text-xs font-bold text-text-secondary mb-2">Tuit {index + 1}</p>
                                      <p className="text-sm text-red-400 line-through mb-1">{original}</p>
                                      <p className="text-sm text-success mb-2">{suggestion}</p>
                                      {!isAccepted && (
                                          <div className="text-right">
-                                             <button onClick={() => handleAcceptSuggestion(index)} className="text-xs text-accent-primary hover:underline">Accept Suggestion</button>
+                                             <button onClick={() => handleAcceptSuggestion(index)} className="text-xs text-accent-primary hover:underline">Aceptar Sugerencia</button>
                                          </div>
                                      )}
                                  </div>
@@ -535,22 +607,22 @@ const Dashboard: React.FC = () => {
         <>
         {createMode === CreateMode.Link && (
             <div className="mb-4">
-                <label htmlFor="linkUrl" className="text-sm font-semibold text-text-primary mb-2">Enter a URL to summarize</label>
+                <label htmlFor="linkUrl" className="text-sm font-semibold text-text-primary mb-2">Introduce una URL para resumir</label>
                 <div className="flex gap-2">
-                    <input id="linkUrl" type="url" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://example.com/article" className="flex-grow bg-bg-secondary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition" />
-                    <button onClick={handleFetchLink} disabled={isFetchingLink || !linkUrl} className="ai-button bg-success/80 hover:bg-success text-white px-4">{isFetchingLink ? '...' : 'Fetch & Summarize'}</button>
+                    <input id="linkUrl" type="url" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://ejemplo.com/articulo" className="flex-grow bg-bg-secondary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition" />
+                    <button onClick={handleFetchLink} disabled={isFetchingLink || !linkUrl} className="ai-button bg-success/80 hover:bg-success text-white px-4">{isFetchingLink ? '...' : 'Obtener y Resumir'}</button>
                 </div>
             </div>
         )}
 
         {createMode === CreateMode.File && (
              <div className="mb-4">
-                <label className="text-sm font-semibold text-text-primary mb-2 block">Upload a File for Context</label>
+                <label className="text-sm font-semibold text-text-primary mb-2 block">Sube un Archivo como Contexto</label>
                 <input type="file" id="context-file-upload" className="hidden" onChange={handleContextFileSelect} accept=".txt,.md,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
                 {!uploadedFile ? (
                     <label htmlFor="context-file-upload" className="cursor-pointer flex items-center justify-center gap-2 p-4 border-2 border-dashed border-border-primary rounded-lg text-text-primary hover:border-accent-primary hover:text-accent-primary transition">
                        <UploadIcon />
-                       <span>Select a file (.txt, .pdf, .docx)</span>
+                       <span>Selecciona un archivo (.txt, .pdf, .docx)</span>
                     </label>
                 ) : (
                     <div className="bg-bg-primary p-3 rounded-lg flex items-center justify-between border border-border-primary">
@@ -566,7 +638,7 @@ const Dashboard: React.FC = () => {
              </div>
         )}
 
-      <label htmlFor="prompt" className="text-sm font-semibold text-text-primary mb-2">{createMode === CreateMode.File ? "What should the post be about? (using the file for context)" : "What do you want to post about?"}</label>
+      <label htmlFor="prompt" className="text-sm font-semibold text-text-primary mb-2">{createMode === CreateMode.File ? "¿Sobre qué debería ser la publicación? (usando el archivo como contexto)" : "¿Sobre qué quieres publicar?"}</label>
       <textarea id="prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ejemplo: El futuro de la exploración espacial con IA..." className="w-full bg-bg-secondary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition" rows={3} />
       <div className="my-2">
         <InfoTooltip content={<>
@@ -581,7 +653,12 @@ const Dashboard: React.FC = () => {
       </div>
 
       <div className="my-4 border-t border-border-primary pt-4">
-        <h3 className="text-md font-semibold text-text-secondary mb-2">Opciones Avanzadas</h3>
+         <div className="flex justify-between items-center mb-2">
+            <h3 className="text-md font-semibold text-text-secondary">Opciones Avanzadas</h3>
+            <button onClick={() => setIsBrandVoiceModalOpen(true)} className="text-sm font-bold text-accent-primary hover:underline">
+                Definir Voz de Marca
+            </button>
+         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
                  <InfoTooltip content={<>
@@ -646,7 +723,7 @@ const Dashboard: React.FC = () => {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 my-4">
         <button onClick={() => handleGenerate('tweet')} disabled={isLoading || !prompt.trim()} className="ai-button">
-            <SparklesIcon /> {isLoading ? 'Generando...' : 'Generar Tweet'}
+            <SparklesIcon /> {isLoading ? 'Generando...' : 'Generar Tuit'}
         </button>
         <button onClick={() => handleGenerate('thread')} disabled={isLoading || !prompt.trim()} className="ai-button">
             <SparklesIcon /> {isLoading ? 'Generando...' : 'Generar Hilo'}
@@ -658,7 +735,6 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-7xl mx-auto">
-      {/* --- CREATION PANEL --- */}
       <div className="bg-bg-secondary p-4 sm:p-6 rounded-xl border border-border-primary flex flex-col shadow-sm" ref={creationPanelRef}>
         <div className="flex border-b border-border-primary">
             <ModeButton mode={CreateMode.Text} label="Texto" icon={<TextIcon />} />
@@ -669,6 +745,16 @@ const Dashboard: React.FC = () => {
         <div className="flex-grow flex flex-col py-4">
             {generationStatus ? (
                 <GenerationStatus title={generationStatus.title} steps={generationStatus.steps} currentStepIndex={generationStatus.currentStep} error={generationStatus.error} />
+            ) : chatSession ? (
+                <div className="flex flex-col h-full">
+                    <div className="flex justify-between items-center mb-2">
+                        <h3 className="text-lg font-bold text-text-primary">Refine Content</h3>
+                        <button onClick={handleStartNew} className="text-sm font-semibold text-accent-primary hover:underline">
+                            Start New Creation
+                        </button>
+                    </div>
+                    <ChatHistory messages={chatMessages} onSendMessage={handleSendRefinement} isLoading={isChatLoading} />
+                </div>
             ) : (
                 renderCreationPanel()
             )}
@@ -682,11 +768,10 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* --- PREVIEW & DRAFTS PANEL --- */}
       <div className="space-y-8">
         <div>
-            <h2 className="text-xl font-bold mb-4">Vista Previa</h2>
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+            <h2 className="text-xl font-bold mb-4">Estudio de Creación</h2>
+            <div className="space-y-4 max-h-[75vh] lg:max-h-[60vh] overflow-y-auto pr-2">
                 {tweets.map((tweet, index) => {
                     const previewTweet = {
                         id: tweet.id,
@@ -716,12 +801,12 @@ const Dashboard: React.FC = () => {
                         </div>
                     );
                 })}
+                 {tweets.length > 0 && tweets[0].content && (
+                    <button onClick={addTweetToThread} className="mt-4 text-accent-primary font-semibold hover:underline self-start">
+                        + Añadir Tweet al Hilo
+                    </button>
+                )}
             </div>
-             {tweets.length > 1 && (
-                <button onClick={addTweetToThread} className="mt-4 text-accent-primary font-semibold hover:underline self-start">
-                    + Añadir al hilo
-                </button>
-            )}
         </div>
         <DraftsPanel drafts={drafts} onLoad={handleLoadDraft} onDelete={handleDeleteDraft} />
       </div>
@@ -731,11 +816,11 @@ const Dashboard: React.FC = () => {
        {isMediaPromptModalOpen && (
         <div className="fixed inset-0 bg-bg-primary/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
             <div className="bg-bg-secondary border border-border-primary rounded-xl p-6 w-full max-w-lg relative shadow-2xl shadow-black/50">
-                <h2 className="text-xl font-bold mb-4">Generate {mediaGenerationTarget?.type === 'image' ? 'Image' : 'Video'}</h2>
+                <h2 className="text-xl font-bold mb-4">Generar {mediaGenerationTarget?.type === 'image' ? 'Imagen' : 'Video'}</h2>
                 <textarea
                     value={mediaPrompt}
                     onChange={(e) => setMediaPrompt(e.target.value)}
-                    placeholder="Enter a prompt for the media..."
+                    placeholder="Introduce un prompt para el contenido multimedia..."
                     className="w-full bg-bg-primary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition"
                     rows={4}
                 />
@@ -746,7 +831,7 @@ const Dashboard: React.FC = () => {
                 )}
                 {mediaGenerationTarget?.type === 'video' && (
                     <div className="mt-4">
-                        <label className="text-sm font-semibold text-text-primary mb-2 block">Video Style</label>
+                        <label className="text-sm font-semibold text-text-primary mb-2 block">Estilo de Video</label>
                         <div className="flex gap-2">
                              {(['cinematic', 'documentary', 'animation'] as const).map(style => (
                                 <button key={style} onClick={() => setVideoStyle(style)} className={`flex-1 p-2 rounded-lg border-2 capitalize ${videoStyle === style ? 'border-accent-primary bg-accent-primary/10' : 'border-border-primary hover:border-text-secondary'}`}>
@@ -757,67 +842,31 @@ const Dashboard: React.FC = () => {
                     </div>
                 )}
                 <div className="flex justify-end gap-3 mt-6">
-                    <button onClick={closeMediaPromptModal} className="ai-button bg-bg-primary hover:bg-border-primary/50 text-text-primary px-6">Cancel</button>
-                    <button onClick={handleConfirmMediaGeneration} disabled={!mediaPrompt} className="ai-button bg-accent-primary hover:opacity-90 text-white px-6">Generate</button>
+                    <button onClick={closeMediaPromptModal} className="ai-button bg-bg-primary hover:bg-border-primary/50 text-text-primary px-6">Cancelar</button>
+                    <button onClick={handleConfirmMediaGeneration} disabled={!mediaPrompt} className="ai-button bg-accent-primary hover:opacity-90 text-white px-6">Generar</button>
                 </div>
             </div>
         </div>
       )}
 
+      <BrandVoiceModal 
+        isOpen={isBrandVoiceModalOpen}
+        onClose={() => setIsBrandVoiceModalOpen(false)}
+        onSave={handleSaveBrandVoice}
+      />
+
       <style>{`
-          .ai-button {
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              gap: 0.5rem;
-              padding: 0.75rem;
-              border-radius: 9999px;
-              font-weight: bold;
-              transition: all 0.2s;
-              background-color: #3B82F6;
-              color: white;
-              text-align: center;
-              white-space: nowrap;
-          }
-          .ai-button:hover:not(:disabled) {
-              opacity: 0.9;
-          }
-          .ai-button:disabled {
-              opacity: 0.5;
-              cursor: not-allowed;
-          }
-           .action-button {
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              gap: 0.5rem;
-              padding: 0.5rem;
-              border-radius: 0.5rem;
-              font-weight: 600;
-              font-size: 0.875rem;
-              transition: all 0.2s;
-              background-color: #F3F4F6;
-              color: #374151;
-              border: 1px solid #E5E7EB;
-          }
-          .action-button:hover:not(:disabled) {
-              background-color: #E5E7EB;
-              color: #111827;
-          }
-           .action-button:disabled {
-              opacity: 0.5;
-              cursor: not-allowed;
-           }
-          .animate-fade-in {
-            animation: fadeIn 0.3s ease-in-out;
-          }
-          @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
+          .ai-button { display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.75rem; border-radius: 9999px; font-weight: bold; transition: all 0.2s; background-color: #3B82F6; color: white; text-align: center; white-space: nowrap; }
+          .ai-button:hover:not(:disabled) { opacity: 0.9; }
+          .ai-button:disabled { opacity: 0.5; cursor: not-allowed; }
+           .action-button { display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.5rem; border-radius: 0.5rem; font-weight: 600; font-size: 0.875rem; transition: all 0.2s; background-color: #F3F4F6; color: #374151; border: 1px solid #E5E7EB; }
+          .action-button:hover:not(:disabled) { background-color: #E5E7EB; color: #111827; }
+           .action-button:disabled { opacity: 0.5; cursor: not-allowed; }
+          .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
+          @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
     </div>
   );
 };
 
-export default Dashboard;
+export default ContentStudio;

@@ -57,7 +57,7 @@ const TweetPreview: React.FC<TweetPreviewProps> = ({ tweet, isGenerating = false
             ref={textareaRef}
             value={tweet.content}
             onChange={(e) => onTweetChange(e.target.value)}
-            placeholder="Your tweet content..."
+            placeholder="El contenido de tu tuit..."
             className="w-full bg-transparent text-text-primary focus:outline-none resize-none mt-1 whitespace-pre-wrap overflow-hidden"
             rows={1}
           />
@@ -111,7 +111,7 @@ const TweetPreview: React.FC<TweetPreviewProps> = ({ tweet, isGenerating = false
             <div className="mt-4 pt-4 border-t border-border-primary/50 flex items-center justify-end gap-2 flex-wrap">
                 {(editableTweet.isLoadingMedia || editableTweet.isRegenerating) && 
                     <p className="text-sm text-text-primary animate-pulse mr-auto">
-                        {editableTweet.isLoadingMedia ? 'Generating media...' : 'Regenerating tweet...'}
+                        {editableTweet.isLoadingMedia ? 'Generando multimedia...' : 'Regenerando tuit...'}
                     </p>
                 }
                 

@@ -230,10 +230,6 @@ const BufferModal: React.FC<BufferModalProps> = ({ tweets, onClose, token, onSet
         {renderContent()}
       </div>
        <style>{`
-          .overflow-y-auto::-webkit-scrollbar { width: 8px; }
-          .overflow-y-auto::-webkit-scrollbar-track { background: #111827; }
-          .overflow-y-auto::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
-          .overflow-y-auto::-webkit-scrollbar-thumb:hover { background: #4B5563; }
           .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
           @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
       `}</style>

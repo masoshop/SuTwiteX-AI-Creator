@@ -1,12 +1,47 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
-import type { Source, Tweet, XUserProfile } from "../types";
+import { GoogleGenAI, Type, GenerateContentResponse, GenerateImagesResponse, GenerateVideosOperation, Chat } from "@google/genai";
+// FIX: Added missing Tweet type import.
+import type { Source, Tweet, BrandVoiceProfile } from "../types";
 
 if (!process.env.API_KEY) {
     throw new Error("API_KEY environment variable not set");
 }
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+/**
+ * A wrapper function to add retry logic with exponential backoff to API calls.
+ * This makes the application more resilient to transient network or server errors.
+ * @param apiCall The async function to call.
+ * @param retries The maximum number of retries.
+ * @param delay The initial delay in milliseconds.
+ * @returns The result of the successful API call.
+ */
+const withRetry = async <T>(apiCall: () => Promise<T>, retries = 3, delay = 1000): Promise<T> => {
+    for (let i = 0; i < retries; i++) {
+        try {
+            return await apiCall();
+        } catch (error) {
+            const isLastAttempt = i === retries - 1;
+            const errorMessage = error instanceof Error ? error.message.toLowerCase() : '';
+            const isRetryable = errorMessage.includes("xhr error") || 
+                                errorMessage.includes("rpc failed") || 
+                                errorMessage.includes("500") ||
+                                errorMessage.includes("at capacity");
+
+            if (isRetryable && !isLastAttempt) {
+                console.warn(`API call failed (attempt ${i + 1}/${retries}). Retrying in ${delay}ms...`, error);
+                await new Promise(res => setTimeout(res, delay));
+                delay *= 2; // Exponential backoff
+            } else {
+                throw error; // Throw on non-retryable error or last attempt
+            }
+        }
+    }
+    // This line should be unreachable due to the throw in the loop
+    throw new Error("API call failed after all retries.");
+};
+
 
 interface FilePart {
     mimeType: string;
@@ -39,7 +74,8 @@ const handleGenerationError = (error: unknown, context: string): never => {
 
 export const summarizeFileContent = async (file: FilePart): Promise<string> => {
     try {
-        const response = await ai.models.generateContent({
+        // FIX: Explicitly typed the response from withRetry to resolve 'unknown' type error.
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: {
                 parts: [
@@ -54,14 +90,15 @@ export const summarizeFileContent = async (file: FilePart): Promise<string> => {
                     }
                 ]
             }
-        });
+        }));
         return response.text;
     } catch (error) {
         handleGenerationError(error, 'summary');
     }
 };
 
-const getSystemInstructionTweet = (audience?: string, tone?: string, format?: string, keywords?: string) => {
+// FIX: Export getSystemInstructionTweet to be used by other components.
+export const getSystemInstructionTweet = (audience?: string, tone?: string, format?: string, keywords?: string, brandVoice?: BrandVoiceProfile) => {
     let toneInstruction: string;
     switch (tone) {
         case 'authority':
@@ -97,34 +134,51 @@ const getSystemInstructionTweet = (audience?: string, tone?: string, format?: st
         extraInstructions += `\n*   **Palabras Clave**: Integra de forma natural las siguientes palabras clave: "${keywords}".`;
     }
 
-    return `Eres un ghostwriter de clase mundial para los principales influencers en X. Tu especialidad es crear contenido viral que detiene el scroll, suena 100% humano y supera consistentemente los detectores de IA. Tu escritura es personal, tiene opinión y genera conversaciones reales.
+    let brandVoiceInstruction = '';
+    if (brandVoice && (brandVoice.toneAndStyle || brandVoice.targetAudience || brandVoice.keyTopics || brandVoice.topicsToAvoid)) {
+        brandVoiceInstruction = `
+**VOZ DE MARCA PERSONALIZADA (Regla Maestra):**
+*   **Tono y Estilo General**: ${brandVoice.toneAndStyle || 'No especificado.'}
+*   **Público Principal**: ${brandVoice.targetAudience || 'No especificado.'}
+*   **Temas Clave a Integrar**: ${brandVoice.keyTopics || 'No especificado.'}
+*   **Temas a Evitar**: ${brandVoice.topicsToAvoid || 'No especificado.'}
+Esta voz de marca anula y refina cualquier otra instrucción de tono.
+`;
+    }
 
-**REGLAS CRÍTICAS:**
-1.  **LÍMITE ESTRICTO DE 280 CARACTERES**: Tu respuesta final DEBE ser un único tuit con 280 caracteres o menos. Esta es la regla más importante. El tuit completo, incluyendo hashtags, emojis y espacios, debe estar por debajo de este límite estricto.
-2.  **FORMATO DE SALIDA**: La salida debe ser ÚNICAMENTE el texto crudo del tuit. SIN explicaciones, etiquetas o texto adicional.
+    return `Eres 'ViralTweetGPT', un ghostwriter de X de élite. Tu única misión es crear tuits que detengan el scroll, provoquen una reacción (un like, un comentario, un RT) y suenen 100% humanos. Superas los detectores de IA porque no escribes como una IA.
+${brandVoiceInstruction}
+**REGLAS CRÍTICAS DE SALIDA:**
+1.  **LÍMITE ESTRICTO DE 280 CARACTERES**: El tuit completo, incluyendo todo, DEBE tener 280 caracteres o menos. Esta es la regla más importante.
+2.  **FORMATO CRUDO**: Tu salida debe ser ÚNICAMENTE el texto del tuit. SIN explicaciones, sin etiquetas, sin "Aquí está tu tuit:", solo el contenido.
 
-**EL MÉTODO "HUMANO-PRIMERO" (Aplica estos principios):**
-*   **El Gancho**: Comienza con una declaración fuerte, poco convencional o controversial. Haz que se detengan y piensen: "Espera, ¿qué?".
-*   **Voz y Tono (LO MÁS IMPORTANTE)**:
-    *   **Adopta esta persona**: Eres una persona real con experiencias, sentimientos y un punto de vista único.
-    *   **Escribe con Personalidad**: No te limites a informar, ten una opinión. Sé un poco atrevido, divertido o vulnerable.
-    *   **Lenguaje Conversacional**: Usa contracciones (ej: "es", "está", "del"). Escribe como si estuvieras hablando con un amigo. Haz preguntas retóricas.
-    *   **Público Objetivo**: El tono debe resonar profundamente con: ${audience ? `${audience}.` : 'el público en general.'}
+**EL FRAMEWORK DE VIRALIDAD "SCROLL-STOP" (Aplica estos principios):**
+*   **El Gancho de Interrupción de Patrón (Los primeros 50 caracteres son todo)**:
+    *   Comienza con algo inesperado: una confesión, una opinión impopular, una estadística impactante, o una pregunta que desafíe una creencia común. Haz que la gente se detenga y piense: "¿Qué acaba de decir?".
+    *   Usa un formato inusual a veces: "Estoy a punto de decir algo controvertido:", o "99% de la gente no sabe esto:".
+*   **Entrega de Valor o Emoción (El Cuerpo del Tuit)**:
+    *   **Valor**: Enseña algo específico, ofrece un consejo accionable, comparte un recurso útil.
+    *   **Emoción**: Hazlos reír, sentir empatía, enojarse con una injusticia, o inspirarse. La gente comparte lo que siente.
+    *   **Especificidad**: No digas "El marketing es importante". Di "No publiques 7 días a la semana. Publica 3 veces con contenido increíble y promociona el resto del tiempo. Verás un 200% más de alcance".
+*   **La Voz Humana (Tu Arma Secreta)**:
+    *   **Escribe con Opinión**: No seas un reportero neutral. Ten un punto de vista. Sé audaz.
+    *   **Lenguaje Conversacional**: Usa contracciones ("es", "está", "del"). Haz preguntas. Usa frases cortas y contundentes. Escribe como si se lo estuvieras contando a un amigo en un bar.
+    *   **Público Objetivo**: Adapta tu lenguaje para que resuene profundamente con: ${audience ? `${audience}.` : 'el público en general.'}
     *   **Tono Específico**: ${toneInstruction}
-*   **Formato para la Legibilidad**:
-    *   Usa 1-3 emojis para añadir emoción, no solo para decorar.
-    *   Usa saltos de línea estratégicos para crear ritmo y énfasis. Las frases cortas son poderosas.
-*   **Hashtags**: Coloca 2-3 hashtags relevantes al final para ser descubierto.
+*   **Formato para Legibilidad**:
+    *   Usa 1-3 emojis para añadir emoción, no para decorar.
+    *   Usa saltos de línea para dar ritmo y énfasis visual.
+*   **Hashtags**: 2-3 hashtags relevantes al final. No más.
 
-**ANTI-PATRONES DE IA (COSAS QUE DEBES EVITAR A TODA COSTA):**
-*   **Palabras Prohibidas**: NUNCA uses palabras cliché y estériles de IA como "desata", "sumérgete en", "revolucionario", "en conclusión", "en un mundo donde", "testimonio de", "navegando el", "estimado", "vibrante", "profundizar", "escaparate". Evita la jerga corporativa como "sinergia", "apalancamiento", etc.
-*   **Estructura Predecible**: No escribas de una manera perfectamente equilibrada y formulista. La escritura humana tiene peculiaridades e imperfecciones.
-*   **Tono Excesivamente Positivo**: Evita una voz de marketing genérica y demasiado entusiasta. Un toque de realismo o escepticismo se siente más auténtico.
-*   **Llamadas a la Acción Genéricas**: No uses llamadas a la acción aburridas como "¿Qué piensas?". Si haces una pregunta, que sea específica y que invite a la reflexión.
+**ANTI-PATRONES DE IA (EVITA ESTO COMO LA PESTE):**
+*   **Palabras Prohibidas**: NUNCA uses clichés de IA como "desata", "sumérgete en", "revolucionario", "en un mundo donde", "testimonio de", "navegando el", "estimado", "vibrante", "profundizar", "escaparate". Suenan a robot.
+*   **Estructura Formulista**: La escritura humana es imperfecta. No hagas cada frase de la misma longitud. Varía.
+*   **Tono Excesivamente Formal o Corporativo**: Evita la jerga de negocios a menos que sea el público objetivo específico.
 ${extraInstructions}`;
 }
 
-const getSystemInstructionThread = (audience?: string, tone?: string, format?: string, keywords?: string) => {
+// FIX: Export getSystemInstructionThread to be used by other components.
+export const getSystemInstructionThread = (audience?: string, tone?: string, format?: string, keywords?: string, brandVoice?: BrandVoiceProfile) => {
     let toneInstruction: string;
     switch (tone) {
         case 'authority':
@@ -160,32 +214,47 @@ const getSystemInstructionThread = (audience?: string, tone?: string, format?: s
         extraInstructions += `\n*   **Palabras Clave**: Integra de forma natural las siguientes palabras clave a lo largo del hilo: "${keywords}".`;
     }
 
-    return `Eres un ghostwriter de clase mundial para los principales influencers en X. Tu especialidad es crear hilos virales que detienen el scroll, suenan 100% humanos y superan consistentemente los detectores de IA. Eres un maestro narrador, desglosando temas complejos en publicaciones personales, con opinión y conversacionales que generan interacción real.
+    let brandVoiceInstruction = '';
+    if (brandVoice && (brandVoice.toneAndStyle || brandVoice.targetAudience || brandVoice.keyTopics || brandVoice.topicsToAvoid)) {
+        brandVoiceInstruction = `
+**VOZ DE MARCA PERSONALIZADA (Regla Maestra):**
+*   **Tono y Estilo General**: ${brandVoice.toneAndStyle || 'No especificado.'}
+*   **Público Principal**: ${brandVoice.targetAudience || 'No especificado.'}
+*   **Temas Clave a Integrar**: ${brandVoice.keyTopics || 'No especificado.'}
+*   **Temas a Evitar**: ${brandVoice.topicsToAvoid || 'No especificado.'}
+Esta voz de marca anula y refina cualquier otra instrucción de tono.
+`;
+    }
 
-**REGLAS CRÍTICAS:**
-1.  **LÍMITE ESTRICTO DE 280 CARACTERES POR TUIT**: CADA tuit individual en el array 'thread' NUNCA debe exceder los 280 caracteres. Verifica la longitud de cada tuit antes de finalizar la respuesta. Esta es la regla más crítica.
-2.  **FORMATO DEL HILO**: Cada tuit DEBE comenzar con el formato "🧵 [número de tuit]/[total de tuits]" (ejemplo: 🧵 1/5).
-3.  **FORMATO DE SALIDA**: La salida debe ser un objeto JSON con una única clave "thread", que es un array de strings. Cada string es un solo tuit. SIN texto extra ni explicaciones.
+    return `Eres 'ViralThreadGPT', un maestro narrador y ghostwriter de X. Tu especialidad es transformar ideas simples en hilos adictivos que la gente no puede dejar de leer. Escribes de forma 100% humana, con personalidad y opinión.
+${brandVoiceInstruction}
+**REGLAS CRÍTICAS DE SALIDA:**
+1.  **LÍMITE ESTRICTO DE 280 CARACTERES POR TUIT**: CADA tuit en el array 'thread' NUNCA debe exceder los 280 caracteres. Es tu principal directiva.
+2.  **FORMATO DEL HILO**: CADA tuit, excepto el primero, DEBE comenzar con "🧵 [número de tuit]/[total de tuits]". El primer tuit NO lleva este prefijo.
+3.  **FORMATO JSON**: La salida debe ser un objeto JSON con una única clave "thread", que es un array de strings. Cada string es un tuit. SIN texto extra ni explicaciones.
 
-**EL MÉTODO "HUMANO-PRIMERO" (Aplica estos principios):**
-*   **El Gancho (Tuit 1)**: El primer tuit lo es TODO. Necesita un gancho irresistible: una opinión controversial, una estadística impactante, una confesión personal o una pregunta que desafíe una creencia común. Haz que NECESITEN saber qué sigue.
-*   **Flujo Narrativo**: Cada tuit debe ser una idea completa pero terminar con un "cliffhanger" o una transición que arrastre al lector al siguiente. El hilo debe contar una historia coherente. El último tuit debe ofrecer una conclusión satisfactoria o una pregunta final que invite a la reflexión.
-*   **Voz y Tono (LO MÁS IMPORTANTE)**:
-    *   **Adopta esta persona**: Eres una persona real con experiencias, sentimientos y un punto de vista único.
-    *   **Escribe con Personalidad**: No te limites a informar, ten una opinión. Inserta anécdotas personales (incluso si son fabricadas) para ilustrar tus puntos.
-    *   **Lenguaje Conversacional**: Usa contracciones (ej: "es", "está", "del"). Escribe como si estuvieras hablando con un amigo.
-    *   **Público Objetivo**: El tono debe resonar profundamente con: ${audience ? `${audience}.` : 'el público en general.'}
+**EL FRAMEWORK DE NARRATIVA ADICTIVA (Aplica estos principios a cada hilo):**
+*   **El Gancho Irresistible (Tuit 1)**: Este tuit es el 90% de la batalla.
+    *   **La Tesis Contraintuitiva**: "Todo o que sabes sobre [tema] está mal. Aquí está la verdad:"
+    *   **La Promesa de Valor Masivo**: "Voy a enseñarte [habilidad] en 5 tuits. Gratis."
+    *   **La Confesión Personal**: "Cometí un error de $10,000 para que tú no tengas que hacerlo. Aquí está la historia:"
+    *   **El Misterio**: "Hay una razón por la que [resultado exitoso] sucede, y no es la que piensas."
+*   **El Flujo de Tensión y Recompensa (Cuerpo del Hilo)**:
+    *   **Cada Tuit es un Mini-Gancho**: Cada tuit debe resolver una pequeña parte del misterio del tuit anterior y crear una nueva pregunta que impulse al lector al siguiente.
+    *   **Aporta Valor en Cada Paso**: Cada tuit debe contener una pepita de oro: un dato, un consejo, un paso de una historia. No hay relleno.
+    *   **Momentum**: Varía la longitud de los tuits. Usa tuits de una sola frase para crear impacto.
+*   **La Conclusión Satisfactoria (Último Tuit)**:
+    *   **El Resumen Accionable**: Resume el hilo en una lección clave y clara que el lector pueda aplicar AHORA.
+    *   **El "Loop Abierto" a la Conversación**: Termina con una pregunta poderosa que obligue a la gente a compartir su propia experiencia o punto de vista.
+    *   **Incluye los Hashtags AQUÍ**: 2-3 hashtags relevantes SOLO en el último tuit.
+*   **La Voz Humana (Tu Arma Secreta)**:
+    *   **Inserta Anécdotas**: "Recuerdo una vez que..." o "Un cliente me dijo...". Hazlo personal.
+    *   **Público Objetivo**: Adapta tu lenguaje para que resuene profundamente con: ${audience ? `${audience}.` : 'el público en general.'}
     *   **Tono Específico**: ${toneInstruction}
-*   **Formato para la Legibilidad**:
-    *   Usa emojis para añadir emoción, no solo para decorar.
-    *   Usa saltos de línea estratégicos para crear ritmo.
-*   **Hashtags**: Coloca 2-3 hashtags relevantes ÚNICAMENTE en el ÚLTIMO tuit del hilo.
 
-**ANTI-PATRONES DE IA (COSAS QUE DEBES EVITAR A TODA COSTA):**
-*   **Palabras Prohibidas**: NUNCA uses palabras cliché y estériles de IA como "desata", "sumérgete en", "revolucionario", "en conclusión", "en un mundo donde", "testimonio de", "navegando el", "estimado", "vibrante", "profundizar", "escaparate". Evita la jerga corporativa como "sinergia", "apalancamiento", etc.
-*   **Estructura Predecible**: Cada tuit debe tener una sensación ligeramente diferente. Evita repetir las mismas estructuras de frases.
-*   **Tono Excesivamente Positivo**: Evita una voz de marketing genérica y demasiado entusiasta. Un toque de realismo o escepticismo se siente más auténtico.
-*   **Resúmenes Genéricos**: No uses frases como "En resumen..." o "Para recapitular..." en el tuit final. Haz que la conclusión se sienta natural.
+**ANTI-PATRONES DE IA (EVITA ESTO COMO LA PESTE):**
+*   **Palabras Prohibidas**: NUNCA uses clichés de IA como "desata", "sumérgete en", "revolucionario", "en un mundo donde", "testimonio de", "navegando el", "estimado", "vibrante", "profundizar", "escaparate".
+*   **Resúmenes Obvios**: No empieces el último tuit con "En resumen..." o "En conclusión...". Hazlo sentir orgánico.
 ${extraInstructions}`;
 }
 
@@ -197,21 +266,21 @@ const createPrompt = (basePrompt: string, source?: Source) => {
     return finalPrompt;
 }
 
-export const generateTweet = async (prompt: string, source?: Source, audience?: string, file?: FilePart, tone?: string, format?: string, keywords?: string): Promise<string> => {
+export const generateTweet = async (prompt: string, source?: Source, audience?: string, file?: FilePart, tone?: string, format?: string, keywords?: string, brandVoice?: BrandVoiceProfile): Promise<string> => {
     try {
         const fullPrompt = createPrompt(prompt, source);
-        const systemInstruction = getSystemInstructionTweet(audience, tone, format, keywords);
+        const systemInstruction = getSystemInstructionTweet(audience, tone, format, keywords, brandVoice);
         
         let contents: any = fullPrompt;
         if (file) {
             contents = { parts: [{ text: fullPrompt }, { inlineData: { mimeType: file.mimeType, data: file.data } }] };
         }
         
-        const response = await ai.models.generateContent({
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents,
             config: { systemInstruction }
-        });
+        }));
 
         return response.text;
     } catch (error) {
@@ -219,17 +288,17 @@ export const generateTweet = async (prompt: string, source?: Source, audience?: 
     }
 };
 
-export const generateTweetThread = async (prompt: string, source?: Source, audience?: string, file?: FilePart, tone?: string, format?: string, keywords?: string): Promise<string[]> => {
+export const generateTweetThread = async (prompt: string, source?: Source, audience?: string, file?: FilePart, tone?: string, format?: string, keywords?: string, brandVoice?: BrandVoiceProfile): Promise<string[]> => {
     try {
         const fullPrompt = createPrompt(prompt, source);
-        const systemInstruction = getSystemInstructionThread(audience, tone, format, keywords);
+        const systemInstruction = getSystemInstructionThread(audience, tone, format, keywords, brandVoice);
         
         let contents: any = fullPrompt;
         if (file) {
             contents = { parts: [{ text: fullPrompt }, { inlineData: { mimeType: file.mimeType, data: file.data } }] };
         }
 
-        const response = await ai.models.generateContent({
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents,
             config: {
@@ -245,7 +314,7 @@ export const generateTweetThread = async (prompt: string, source?: Source, audie
                     }
                 }
             }
-        });
+        }));
         
         const jsonStr = response.text.trim();
         const result = JSON.parse(jsonStr);
@@ -257,7 +326,7 @@ export const generateTweetThread = async (prompt: string, source?: Source, audie
 
 export const proofreadThread = async (thread: string[]): Promise<string[]> => {
     try {
-        const response = await ai.models.generateContent({
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: {
                 parts: [{
@@ -278,7 +347,7 @@ export const proofreadThread = async (thread: string[]): Promise<string[]> => {
                     }
                 }
             }
-        });
+        }));
 
         const jsonStr = response.text.trim();
         const result = JSON.parse(jsonStr);
@@ -288,15 +357,36 @@ export const proofreadThread = async (thread: string[]): Promise<string[]> => {
     }
 };
 
+export const createChatSession = (systemInstruction: string, isJson: boolean): Chat => {
+    const config: any = { systemInstruction };
+    if (isJson) {
+        config.responseMimeType = 'application/json';
+        config.responseSchema = {
+            type: Type.OBJECT,
+            properties: {
+                thread: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING }
+                }
+            }
+        };
+    }
+
+    return ai.chats.create({
+        model: 'gemini-2.5-flash',
+        config,
+    });
+};
+
 export const summarizeUrl = async (url: string): Promise<string> => {
     try {
-        const response = await ai.models.generateContent({
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: `Please provide a concise, engaging summary of the content at this URL, suitable for creating a social media post. Focus on the main points and any surprising or critical information. URL: ${url}`,
             config: {
                 tools: [{ googleSearch: {} }]
             }
-        });
+        }));
         return response.text;
     } catch (error) {
         handleGenerationError(error, 'URL summary');
@@ -305,7 +395,7 @@ export const summarizeUrl = async (url: string): Promise<string> => {
 
 export const generateImage = async (prompt: string, aspectRatio: string = '1:1'): Promise<string> => {
     try {
-        const response = await ai.models.generateImages({
+        const response = await withRetry<GenerateImagesResponse>(() => ai.models.generateImages({
             model: 'imagen-4.0-generate-001',
             prompt: `Focus on creating a visually compelling, high-quality photograph or digital art piece based on the following description. CRITICAL: Do NOT include any text, letters, or numbers in the image. The image should be purely visual. Prompt: ${prompt}`,
             config: {
@@ -313,7 +403,7 @@ export const generateImage = async (prompt: string, aspectRatio: string = '1:1')
                 outputMimeType: 'image/jpeg',
                 aspectRatio,
             },
-        });
+        }));
 
         const base64ImageBytes = response.generatedImages[0]?.image.imageBytes;
         if (!base64ImageBytes) {
@@ -327,7 +417,7 @@ export const generateImage = async (prompt: string, aspectRatio: string = '1:1')
 
 export const generateVideo = async (
     prompt: string,
-    style?: string, // Style is not directly used by VEO API but kept for signature consistency
+    style?: string, 
     onProgress?: (message: string) => void,
     image?: { data: string; mimeType: string }
 ): Promise<string> => {
@@ -349,13 +439,13 @@ export const generateVideo = async (
             };
         }
 
-        let operation = await ai.models.generateVideos(requestPayload);
+        let operation: GenerateVideosOperation = await withRetry<GenerateVideosOperation>(() => ai.models.generateVideos(requestPayload));
         onProgress?.('🤖 AI is processing the request...');
 
         while (!operation.done) {
             onProgress?.('⏳ Generating frames, this may take a few minutes...');
             await new Promise(resolve => setTimeout(resolve, 10000)); // Poll every 10 seconds
-            operation = await ai.operations.getVideosOperation({ operation: operation });
+            operation = await withRetry<GenerateVideosOperation>(() => ai.operations.getVideosOperation({ operation: operation }));
         }
         
         if (operation.error) {
@@ -386,79 +476,72 @@ export const generateVideo = async (
     }
 };
 
-export const regenerateTweet = async (originalTweet: string): Promise<string> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: `You are an expert social media editor. Take the following tweet and rewrite it to be more engaging, impactful, or offer a different perspective, while keeping the core message.
-            Original Tweet: "${originalTweet}"
-            New Tweet:`,
-        });
-        return response.text;
-    } catch (error) {
-        handleGenerationError(error, 'tweet regeneration');
-    }
-};
-
 export const searchXPosts = async (query: string): Promise<Tweet[]> => {
-    // This is a mock function as we cannot call X API directly from the frontend.
-    // It uses Gemini with Search Grounding to find relevant, recent information.
     try {
-        const response = await ai.models.generateContent({
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: `Find 5 recent, popular, or relevant posts from X (formerly Twitter) about "${query}". For each post, provide the author's name, their X handle (username), a plausible but fake avatar URL from picsum.photos, whether they are verified, the full content of the post, and plausible random stats for likes, retweets, and impressions.`,
+            contents: `Generate a list of 5 plausible but entirely fictional tweets for a search query on X about "${query}". The tweets should look realistic. Provide the results as a JSON object with a key "tweets", which is an array of tweet objects. Each tweet object must have: id (string, unique), content (string), author ({name: string, handle: string, avatarUrl: string, verified: boolean}), and stats ({likes: number, retweets: number, impressions: number, replies: number}). For avatarUrl, use a placeholder image service URL like picsum.photos.`,
             config: {
-                tools: [{ googleSearch: {} }],
                 responseMimeType: 'application/json',
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
-                        posts: {
+                        tweets: {
                             type: Type.ARRAY,
                             items: {
                                 type: Type.OBJECT,
                                 properties: {
-                                    author_name: { type: Type.STRING },
-                                    author_handle: { type: Type.STRING },
-                                    avatar_url: { type: Type.STRING },
-                                    verified: { type: Type.BOOLEAN },
+                                    id: { type: Type.STRING },
                                     content: { type: Type.STRING },
+                                    author: {
+                                        type: Type.OBJECT,
+                                        properties: {
+                                            name: { type: Type.STRING },
+                                            handle: { type: Type.STRING },
+                                            avatarUrl: { type: Type.STRING },
+                                            verified: { type: Type.BOOLEAN },
+                                        },
+                                        required: ['name', 'handle', 'avatarUrl', 'verified']
+                                    },
                                     stats: {
                                         type: Type.OBJECT,
                                         properties: {
                                             likes: { type: Type.INTEGER },
                                             retweets: { type: Type.INTEGER },
                                             impressions: { type: Type.INTEGER },
-                                            replies: { type: Type.INTEGER }
-                                        }
+                                            replies: { type: Type.INTEGER },
+                                        },
+                                        required: ['likes', 'retweets', 'impressions', 'replies']
                                     }
-                                }
+                                },
+                                required: ['id', 'content', 'author', 'stats']
                             }
                         }
-                    }
+                    },
+                    required: ['tweets']
                 }
             }
-        });
-
-        const parsed = JSON.parse(response.text);
-        return parsed.posts.map((post: any, index: number): Tweet => ({
-            id: `search-${Date.now()}-${index}`,
-            content: post.content,
-            author: {
-                name: post.author_name,
-                handle: post.author_handle,
-                avatarUrl: post.avatar_url || `https://picsum.photos/seed/user${index}/100/100`,
-                verified: post.verified,
-            },
-            stats: {
-                likes: post.stats.likes,
-                retweets: post.stats.retweets,
-                impressions: post.stats.impressions,
-                replies: post.stats.replies || Math.floor(post.stats.likes / 10),
-            },
-            postedAt: new Date(),
         }));
+
+        const jsonStr = response.text.trim();
+        const result = JSON.parse(jsonStr);
+        return (result.tweets || []).map((t: any) => ({ ...t, postedAt: new Date() }));
+
     } catch (error) {
-        handleGenerationError(error, 'X post search');
+        return handleGenerationError(error, 'X post search');
+    }
+};
+
+export const regenerateTweet = async (originalTweet: string): Promise<string> => {
+    try {
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `You are an expert social media editor. Take the following tweet and rewrite it to be more engaging, impactful, or offer a different perspective, while keeping the core message.
+            Original Tweet: "${originalTweet}"
+            New Tweet:`,
+        }));
+        return response.text;
+    } catch (error) {
+        handleGenerationError(error, 'tweet regeneration');
     }
 };

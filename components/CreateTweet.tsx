@@ -249,19 +249,6 @@ const CreateTweet: React.FC = () => {
               opacity: 0.5;
               cursor: not-allowed;
           }
-          .overflow-y-auto::-webkit-scrollbar {
-            width: 8px;
-          }
-          .overflow-y-auto::-webkit-scrollbar-track {
-            background: #1F2937; 
-          }
-          .overflow-y-auto::-webkit-scrollbar-thumb {
-            background: #374151; 
-            border-radius: 4px;
-          }
-          .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-            background: #4B5563; 
-          }
       `}</style>
     </div>
   );

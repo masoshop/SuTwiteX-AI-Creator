@@ -44,6 +44,26 @@
   .z-negative {
     z-index: -1;
   }
+  
+  /* Global scrollbar styling to prevent layout shifts */
+  .overflow-y-auto, .overflow-auto {
+    scrollbar-gutter: stable;
+  }
+  
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent; 
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #D1D5DB; /* A neutral gray from the theme */
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #9CA3AF; /* A darker gray for hover */
+  }
 </style>
 </head>
   <body class="bg-bg-primary text-text-primary">

@@ -1,23 +1,5 @@
 
 
-export interface Tweet {
-  id: string;
-  content: string;
-  author: XUserProfile;
-  media?: {
-    type: 'image' | 'video';
-    url: string;
-  };
-  stats: {
-    likes: number;
-    retweets: number;
-    impressions: number;
-    replies: number;
-  };
-  scheduledAt?: Date;
-  postedAt: Date;
-}
-
 export interface EditableTweet {
   id:string;
   content: string;
@@ -49,23 +31,6 @@ export interface Source {
   };
 }
 
-// FIX: Add BufferProfile interface, which was missing and causing compilation errors.
-export interface BufferProfile {
-  id: string;
-  avatar: string;
-  formatted_username: string;
-  service: string;
-}
-
-// FIX: Add ViewType for sidebar navigation.
-export type ViewType = 'dashboard' | 'multimedia';
-
-// FIX: Add AnalyticsDataPoint for analytics charts.
-export interface AnalyticsDataPoint {
-  date: string;
-  [key: string]: string | number;
-}
-
 export interface Draft {
   id: string;
   createdAt: string; // ISO string
@@ -73,4 +38,50 @@ export interface Draft {
   audience: string;
   createMode: CreateMode;
   tweets: EditableTweet[];
+}
+
+export interface BrandVoiceProfile {
+  toneAndStyle: string;
+  targetAudience: string;
+  keyTopics: string;
+  topicsToAvoid: string;
+}
+
+export interface ChatMessage {
+  author: 'user' | 'ai';
+  content: string;
+}
+
+// FIX: Added missing Tweet interface required by Scheduler, Analytics, and TweetPreview components.
+export interface Tweet {
+  id: string;
+  content: string;
+  author: XUserProfile;
+  media?: {
+    type: 'image' | 'video';
+    url: string;
+  };
+  stats: {
+    likes: number;
+    retweets: number;
+    impressions: number;
+    replies: number;
+  };
+  postedAt: Date;
+  scheduledAt?: Date;
+}
+
+// FIX: Added missing AnalyticsDataPoint interface required by xService.
+export interface AnalyticsDataPoint {
+  date: string;
+  value?: number;
+  [key: string]: any;
+}
+
+// FIX: Added missing BufferProfile interface required by bufferService and BufferModal.
+export interface BufferProfile {
+  id: string;
+  avatar: string;
+  formatted_username: string;
+  service: string;
 }
