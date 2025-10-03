@@ -11,19 +11,19 @@
         theme: {
           extend: {
             colors: {
-              'bg-primary': '#F9FAFB',        // Off-white background
-              'bg-secondary': '#FFFFFF',      // White for cards/panels
-              'accent-primary': '#3B82F6',    // Brighter, professional blue
-              'accent-secondary': '#10B981',  // Emerald green
-              'text-primary': '#111827',      // Near-black text
-              'text-secondary': '#6B7280',    // Medium gray text
-              'border-primary': '#E5E7EB',    // Lighter gray border
-              'success': '#16A34A',           // Green
-              'danger': '#E11D48',            // Rose red
+              'bg-primary': '#0D1117',        // Very Dark Blue/Black
+              'bg-secondary': '#161B22',      // Lighter Dark Blue
+              'accent-primary': '#A78BFA',    // Vibrant Violet
+              'accent-secondary': '#2DD4BF',  // Vibrant Teal
+              'text-primary': '#E6EDF3',      // Light Gray/Off-white
+              'text-secondary': '#8B949E',    // Medium Gray
+              'border-primary': '#30363D',    // Darker Gray for borders
+              'success': '#34D399',           // Vivid Emerald
+              'danger': '#F87171',            // Soft Vivid Red
             },
             boxShadow: {
-              'glow-blue': '0 0 15px rgba(59, 130, 246, 0.2)', // Adjusted glow for new blue
-              'glow-violet': '0 0 15px rgba(16, 185, 129, 0.2)', // Adjusted glow for new green
+              'glow-blue': '0 0 15px rgba(167, 139, 250, 0.25)',
+              'glow-violet': '0 0 15px rgba(45, 212, 191, 0.25)', 
             }
           },
         },
@@ -58,11 +58,11 @@
     background: transparent; 
   }
   ::-webkit-scrollbar-thumb {
-    background: #D1D5DB; /* A neutral gray from the theme */
+    background: #4B5563; /* A neutral gray from the theme */
     border-radius: 4px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #9CA3AF; /* A darker gray for hover */
+    background: #6B7280; /* A darker gray for hover */
   }
 </style>
 </head>
@@ -78,9 +78,8 @@
       const particleCount = 70;
       const connectionDistance = 150;
       
-      const particleColor = "#D1D5DB";
-      const lineColor = "#E5E7EB";
-      const pulseColor = "#3B82F6";
+      const particleColor = "#30363D";
+      const pulseColor = "#A78BFA";
 
       const mouse = {
         x: undefined,
@@ -199,7 +198,7 @@
             if (dist < connectionDistance) {
               const opacity = 1 - dist / connectionDistance;
               ctx.beginPath();
-              ctx.strokeStyle = `rgba(107, 114, 128, ${opacity * 0.5})`;
+              ctx.strokeStyle = `rgba(139, 148, 158, ${opacity * 0.25})`; // text-secondary
               ctx.lineWidth = 0.5;
               ctx.moveTo(particles[i].x, particles[i].y);
               ctx.lineTo(particles[j].x, particles[j].y);

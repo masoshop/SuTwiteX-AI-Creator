@@ -1,6 +1,5 @@
-
 import React, { useState, useCallback, useRef } from 'react';
-import { generateImage, generateVideo } from '../services/geminiService';
+import { generateImage, generateVideo, editImage } from '../services/geminiService';
 import GenerationStatus from './GenerationStatus';
 import CameraIcon from './icons/CameraIcon';
 import VideoIcon from './icons/VideoIcon';
@@ -37,9 +36,11 @@ const MultimediaCreator: React.FC = () => {
     const [videoStyle, setVideoStyle] = useState<'cinematic' | 'documentary' | 'animation'>('cinematic');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editPrompt, setEditPrompt] = useState('');
+
     const resetStateForGeneration = () => {
         setIsLoading(true);
-        // Don't clear media immediately, so animation can use the source image
         setGenerationStatus(null);
     };
     
@@ -103,8 +104,13 @@ const MultimediaCreator: React.FC = () => {
     
     const generateVideoAction = useCallback(async (image?: { data: string; mimeType: string }) => {
         resetStateForGeneration();
+        let finalPrompt = prompt;
+        if (image) {
+            finalPrompt = `Anima la siguiente imagen basándote en esta descripción: "${prompt}". REGLA CRÍTICA: NO cambies los rasgos físicos (cara, pelo, cuerpo) de ninguna persona en la imagen a menos que se te indique explícitamente. Preserva la identidad y apariencia del sujeto original tanto como sea posible al aplicar la animación.`;
+        }
+
         try {
-            const mediaUrl = await generateVideo(prompt, videoStyle, onProgress, image);
+            const mediaUrl = await generateVideo(finalPrompt, videoStyle, onProgress, image);
             setMedia({ type: 'video', url: mediaUrl });
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -114,6 +120,52 @@ const MultimediaCreator: React.FC = () => {
             setTimeout(() => setGenerationStatus(null), 7000);
         }
     }, [prompt, videoStyle]);
+
+    const openEditModal = () => {
+        setEditPrompt(prompt); // Pre-fill with the main prompt for convenience
+        setIsEditModalOpen(true);
+    };
+
+    const closeEditModal = () => {
+        setIsEditModalOpen(false);
+        setEditPrompt('');
+    };
+
+    const handleConfirmEdit = async () => {
+        if (!media || media.type !== 'image' || !media.base64Data || !editPrompt) return;
+        
+        const { base64Data, mimeType } = media;
+        
+        closeEditModal();
+        resetStateForGeneration();
+        setGenerationStatus({ title: 'Editing Image...', steps: ['Preparing edit', 'Applying changes', 'Rendering result', 'Done!'], currentStep: 0, error: null });
+        
+        try {
+            const result = await editImage(base64Data, mimeType!, editPrompt);
+            setGenerationStatus(prev => prev ? { ...prev, currentStep: 2 } : null);
+
+            if (result.image) {
+                const newUrl = `data:${result.image.mimeType};base64,${result.image.data}`;
+                // Revoke old blob URL if it exists to prevent memory leaks
+                if (media.url.startsWith('blob:')) {
+                    URL.revokeObjectURL(media.url);
+                }
+                setMedia({
+                    type: 'image',
+                    url: newUrl,
+                    base64Data: result.image.data,
+                    mimeType: result.image.mimeType,
+                });
+            }
+            setGenerationStatus(prev => prev ? { ...prev, currentStep: 3 } : null);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            setGenerationStatus(prev => prev ? { ...prev, error: message, currentStep: prev.steps.length } : null);
+        } finally {
+            setIsLoading(false);
+            setTimeout(() => setGenerationStatus(null), 7000);
+        }
+    };
 
     return (
         <div className="max-w-4xl mx-auto animate-fade-in">
@@ -146,13 +198,13 @@ const MultimediaCreator: React.FC = () => {
                     </div>
 
                     <div className="pt-4 border-t border-border-primary space-y-3">
-                        <button onClick={() => fileInputRef.current?.click()} disabled={isLoading} className="ai-button w-full bg-success/80 hover:bg-success">
+                        <button onClick={() => fileInputRef.current?.click()} disabled={isLoading} className="ai-button w-full bg-border-primary hover:opacity-90 text-text-primary">
                             <UploadIcon /> Upload Image
                         </button>
-                        <button onClick={handleGenerateImage} disabled={isLoading || !prompt.trim()} className="ai-button w-full">
+                        <button onClick={handleGenerateImage} disabled={isLoading || !prompt.trim()} className="ai-button w-full bg-accent-primary text-white">
                             <CameraIcon /> {isLoading ? 'Generating...' : 'Generate New Image'}
                         </button>
-                        <button onClick={() => generateVideoAction()} disabled={isLoading || !prompt.trim()} className="ai-button w-full">
+                        <button onClick={() => generateVideoAction()} disabled={isLoading || !prompt.trim()} className="ai-button w-full bg-accent-primary text-white">
                             <VideoIcon /> {isLoading ? 'Generating...' : 'Generate Video from Text'}
                         </button>
                     </div>
@@ -190,9 +242,14 @@ const MultimediaCreator: React.FC = () => {
                                 </button>
                             </div>
                             {media.type === 'image' && (
-                                <button onClick={() => generateVideoAction({ data: media.base64Data!, mimeType: media.mimeType! })} disabled={isLoading || !prompt.trim()} className="ai-button w-full mt-4 bg-accent-secondary hover:bg-emerald-600">
-                                    <SparklesIcon /> {isLoading ? 'Animating...' : 'Animate this Image'}
-                                </button>
+                                <div className="grid grid-cols-2 gap-3 mt-4">
+                                    <button onClick={() => generateVideoAction({ data: media.base64Data!, mimeType: media.mimeType! })} disabled={isLoading || !prompt.trim()} className="ai-button w-full bg-accent-secondary hover:opacity-90 text-white">
+                                        <SparklesIcon /> {isLoading ? 'Animating...' : 'Animate'}
+                                    </button>
+                                    <button onClick={openEditModal} disabled={isLoading} className="ai-button w-full bg-accent-primary hover:opacity-90 text-white">
+                                        <SparklesIcon /> {isLoading ? 'Editing...' : 'Edit'}
+                                    </button>
+                                </div>
                             )}
                         </div>
                     ) : (
@@ -206,8 +263,28 @@ const MultimediaCreator: React.FC = () => {
             
              <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
 
+             {isEditModalOpen && (
+                <div className="fixed inset-0 bg-bg-primary/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+                    <div className="bg-bg-secondary border border-border-primary rounded-xl p-6 w-full max-w-lg relative shadow-2xl shadow-black/50">
+                        <h2 className="text-xl font-bold mb-4 text-text-primary">Edit Image</h2>
+                        <p className="text-sm text-text-secondary mb-4">Describe the changes you want to make to the image.</p>
+                        <textarea
+                            value={editPrompt}
+                            onChange={(e) => setEditPrompt(e.target.value)}
+                            placeholder="e.g., Add a futuristic helmet to the person..."
+                            className="w-full bg-bg-primary border border-border-primary rounded-lg p-3 text-text-primary focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition"
+                            rows={4}
+                        />
+                        <div className="flex justify-end gap-3 mt-6">
+                            <button onClick={closeEditModal} className="ai-button bg-border-primary hover:opacity-90 text-text-primary px-6">Cancel</button>
+                            <button onClick={handleConfirmEdit} disabled={!editPrompt || isLoading} className="ai-button bg-accent-primary hover:opacity-90 text-white px-6">Apply Edit</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
              <style>{`
-              .ai-button { display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.75rem; border-radius: 9999px; font-weight: bold; transition: all 0.2s; background-color: #3B82F6; color: white; text-align: center; white-space: nowrap; }
+              .ai-button { display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.75rem; border-radius: 9999px; font-weight: bold; transition: all 0.2s; text-align: center; white-space: nowrap; }
               .ai-button:hover:not(:disabled) { opacity: 0.9; }
               .ai-button:disabled { opacity: 0.5; cursor: not-allowed; }
               .animate-fade-in { animation: fadeIn 0.5s ease-in-out; }

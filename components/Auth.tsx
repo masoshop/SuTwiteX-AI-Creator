@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import LogoIcon from './icons/LogoIcon';
 
@@ -25,7 +24,7 @@ const Auth: React.FC<AuthProps> = ({ onSetToken, error }) => {
       <div className="w-full max-w-md bg-bg-secondary border border-border-primary rounded-lg p-8 shadow-lg">
         <div className="flex flex-col items-center mb-6">
           <LogoIcon className="h-12 w-12 mb-4" />
-          <h1 className="text-2xl font-bold text-white">SuTwiteX AI Creator</h1>
+          <h1 className="text-2xl font-bold text-text-primary">SuTwiteX AI Creator</h1>
           <p className="text-text-secondary mt-1">Connect your account to continue</p>
         </div>
         
@@ -40,7 +39,7 @@ const Auth: React.FC<AuthProps> = ({ onSetToken, error }) => {
               value={token}
               onChange={(e) => setToken(e.target.value)}
               placeholder="Enter your Bearer Token"
-              className="w-full bg-bg-primary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition text-white"
+              className="w-full bg-bg-primary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition text-text-primary"
               required
             />
              <p className="text-xs text-text-secondary mt-2">
@@ -61,7 +60,7 @@ const Auth: React.FC<AuthProps> = ({ onSetToken, error }) => {
           <button
             type="submit"
             disabled={isLoading || !token}
-            className="w-full bg-accent-primary text-bg-primary font-bold py-3 px-6 rounded-full hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-wait"
+            className="w-full bg-accent-primary text-bg-secondary font-bold py-3 px-6 rounded-full hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-wait"
           >
             {isLoading ? 'Connecting...' : 'Connect'}
           </button>

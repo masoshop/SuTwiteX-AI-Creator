@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { searchXPosts } from '../services/geminiService';
 import type { Tweet } from '../types';
@@ -139,9 +138,9 @@ const Analytics: React.FC = () => {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search X... (e.g., #AI, from:nasa, latest tech)"
-                className="w-full bg-transparent focus:outline-none text-white pl-4"
+                className="w-full bg-transparent focus:outline-none text-text-primary pl-4"
             />
-            <button type="submit" disabled={isLoading || !query} className="bg-accent-primary text-bg-primary rounded-full px-6 py-2 font-bold hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+            <button type="submit" disabled={isLoading || !query} className="bg-accent-primary text-bg-secondary rounded-full px-6 py-2 font-bold hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                 <SearchIcon />
                 {isLoading ? 'Searching...' : 'Search'}
             </button>

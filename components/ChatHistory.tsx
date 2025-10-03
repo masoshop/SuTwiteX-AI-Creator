@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { ChatMessage } from '../types';
-import SparklesIcon from './icons/SparklesIcon';
 import LoaderIcon from './icons/LoaderIcon';
 
 interface ChatHistoryProps {
@@ -63,7 +62,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({ messages, onSendMessage, isLo
             <button 
                 onClick={handleSend}
                 disabled={isLoading || !input.trim()}
-                className="absolute right-2 top-1/2 -translate-y-1/2 ai-button px-4 py-2 text-sm"
+                className="absolute right-2 top-1/2 -translate-y-1/2 ai-button bg-accent-primary text-white px-4 py-2 text-sm"
             >
                 Enviar
             </button>

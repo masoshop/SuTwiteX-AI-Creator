@@ -1,5 +1,4 @@
-
-import { GoogleGenAI, Type, GenerateContentResponse, GenerateImagesResponse, GenerateVideosOperation, Chat } from "@google/genai";
+import { GoogleGenAI, Type, GenerateContentResponse, GenerateImagesResponse, GenerateVideosOperation, Chat, Modality } from "@google/genai";
 // FIX: Added missing Tweet type import.
 import type { Source, Tweet, BrandVoiceProfile } from "../types";
 
@@ -149,7 +148,7 @@ Esta voz de marca anula y refina cualquier otra instrucción de tono.
     return `Eres 'ViralTweetGPT', un ghostwriter de X de élite. Tu única misión es crear tuits que detengan el scroll, provoquen una reacción (un like, un comentario, un RT) y suenen 100% humanos. Superas los detectores de IA porque no escribes como una IA.
 ${brandVoiceInstruction}
 **REGLAS CRÍTICAS DE SALIDA:**
-1.  **LÍMITE ESTRICTO DE 280 CARACTERES**: El tuit completo, incluyendo todo, DEBE tener 280 caracteres o menos. Esta es la regla más importante.
+1.  **LÍMITE ESTRICTO DE 275 CARACTERES**: El tuit completo, incluyendo todo, DEBE tener 275 caracteres o menos. Esta es la regla más importante.
 2.  **FORMATO CRUDO**: Tu salida debe ser ÚNICAMENTE el texto del tuit. SIN explicaciones, sin etiquetas, sin "Aquí está tu tuit:", solo el contenido.
 
 **EL FRAMEWORK DE VIRALIDAD "SCROLL-STOP" (Aplica estos principios):**
@@ -229,7 +228,7 @@ Esta voz de marca anula y refina cualquier otra instrucción de tono.
     return `Eres 'ViralThreadGPT', un maestro narrador y ghostwriter de X. Tu especialidad es transformar ideas simples en hilos adictivos que la gente no puede dejar de leer. Escribes de forma 100% humana, con personalidad y opinión.
 ${brandVoiceInstruction}
 **REGLAS CRÍTICAS DE SALIDA:**
-1.  **LÍMITE ESTRICTO DE 280 CARACTERES POR TUIT**: CADA tuit en el array 'thread' NUNCA debe exceder los 280 caracteres. Es tu principal directiva.
+1.  **LÍMITE ESTRICTO DE 275 CARACTERES POR TUIT**: CADA tuit en el array 'thread' NUNCA debe exceder los 275 caracteres. Es tu principal directiva.
 2.  **FORMATO DEL HILO**: CADA tuit, excepto el primero, DEBE comenzar con "🧵 [número de tuit]/[total de tuits]". El primer tuit NO lleva este prefijo.
 3.  **FORMATO JSON**: La salida debe ser un objeto JSON con una única clave "thread", que es un array de strings. Cada string es un tuit. SIN texto extra ni explicaciones.
 
@@ -271,14 +270,15 @@ export const generateTweet = async (prompt: string, source?: Source, audience?: 
         const fullPrompt = createPrompt(prompt, source);
         const systemInstruction = getSystemInstructionTweet(audience, tone, format, keywords, brandVoice);
         
-        let contents: any = fullPrompt;
-        if (file) {
-            contents = { parts: [{ text: fullPrompt }, { inlineData: { mimeType: file.mimeType, data: file.data } }] };
-        }
+        // FIX: Correctly construct the `parts` array to allow both text and inlineData, resolving a TypeScript type error.
+        const parts = [
+            { text: fullPrompt },
+            ...(file ? [{ inlineData: { mimeType: file.mimeType, data: file.data } }] : [])
+        ];
         
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents,
+            contents: { parts },
             config: { systemInstruction }
         }));
 
@@ -293,14 +293,15 @@ export const generateTweetThread = async (prompt: string, source?: Source, audie
         const fullPrompt = createPrompt(prompt, source);
         const systemInstruction = getSystemInstructionThread(audience, tone, format, keywords, brandVoice);
         
-        let contents: any = fullPrompt;
-        if (file) {
-            contents = { parts: [{ text: fullPrompt }, { inlineData: { mimeType: file.mimeType, data: file.data } }] };
-        }
+        // FIX: Correctly construct the `parts` array to allow both text and inlineData, resolving a TypeScript type error.
+        const parts = [
+            { text: fullPrompt },
+            ...(file ? [{ inlineData: { mimeType: file.mimeType, data: file.data } }] : [])
+        ];
 
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents,
+            contents: { parts },
             config: {
                 systemInstruction,
                 responseMimeType: 'application/json',
@@ -357,7 +358,7 @@ export const proofreadThread = async (thread: string[]): Promise<string[]> => {
     }
 };
 
-export const createChatSession = (systemInstruction: string, isJson: boolean): Chat => {
+export const createChatSession = (systemInstruction: string, isJson: boolean, history?: any[]): Chat => {
     const config: any = { systemInstruction };
     if (isJson) {
         config.responseMimeType = 'application/json';
@@ -375,6 +376,7 @@ export const createChatSession = (systemInstruction: string, isJson: boolean): C
     return ai.chats.create({
         model: 'gemini-2.5-flash',
         config,
+        history,
     });
 };
 
@@ -382,7 +384,7 @@ export const summarizeUrl = async (url: string): Promise<string> => {
     try {
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: `Please provide a concise, engaging summary of the content at this URL, suitable for creating a social media post. Focus on the main points and any surprising or critical information. URL: ${url}`,
+            contents: { parts: [{ text: `Please provide a concise, engaging summary of the content at this URL, suitable for creating a social media post. Focus on the main points and any surprising or critical information. URL: ${url}` }] },
             config: {
                 tools: [{ googleSearch: {} }]
             }
@@ -414,6 +416,57 @@ export const generateImage = async (prompt: string, aspectRatio: string = '1:1')
         handleGenerationError(error, 'image');
     }
 };
+
+export const editImage = async (
+    base64ImageData: string,
+    mimeType: string,
+    prompt: string,
+): Promise<{ text: string, image: { data: string, mimeType: string } | null }> => {
+    try {
+        const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: {
+                parts: [
+                    {
+                        inlineData: {
+                            data: base64ImageData,
+                            mimeType: mimeType,
+                        },
+                    },
+                    {
+                        text: `Edita la imagen según la siguiente instrucción: "${prompt}". REGLA CRÍTICA: NO cambies los rasgos físicos (cara, pelo, cuerpo) de ninguna persona en la imagen a menos que se te indique explícitamente. Preserva la identidad y apariencia del sujeto original tanto como sea posible al aplicar la edición.`,
+                    },
+                ],
+            },
+            config: {
+                responseModalities: [Modality.IMAGE, Modality.TEXT],
+            },
+        }));
+
+        let editedText = '';
+        let editedImage: { data: string, mimeType: string } | null = null;
+
+        for (const part of response.candidates[0].content.parts) {
+            if (part.text) {
+                editedText = part.text;
+            } else if (part.inlineData) {
+                editedImage = {
+                    data: part.inlineData.data,
+                    mimeType: part.inlineData.mimeType,
+                };
+            }
+        }
+        
+        if (!editedImage) {
+            throw new Error("The AI did not return an edited image.");
+        }
+
+        return { text: editedText, image: editedImage };
+    } catch (error) {
+        handleGenerationError(error, 'image edit');
+    }
+};
+
 
 export const generateVideo = async (
     prompt: string,
@@ -480,7 +533,7 @@ export const searchXPosts = async (query: string): Promise<Tweet[]> => {
     try {
         const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: `Generate a list of 5 plausible but entirely fictional tweets for a search query on X about "${query}". The tweets should look realistic. Provide the results as a JSON object with a key "tweets", which is an array of tweet objects. Each tweet object must have: id (string, unique), content (string), author ({name: string, handle: string, avatarUrl: string, verified: boolean}), and stats ({likes: number, retweets: number, impressions: number, replies: number}). For avatarUrl, use a placeholder image service URL like picsum.photos.`,
+            contents: { parts: [{ text: `Generate a list of 5 plausible but entirely fictional tweets for a search query on X about "${query}". The tweets should look realistic. Provide the results as a JSON object with a key "tweets", which is an array of tweet objects. Each tweet object must have: id (string, unique), content (string), author ({name: string, handle: string, avatarUrl: string, verified: boolean}), and stats ({likes: number, retweets: number, impressions: number, replies: number}). For avatarUrl, use a placeholder image service URL like picsum.photos.` }] },
             config: {
                 responseMimeType: 'application/json',
                 responseSchema: {

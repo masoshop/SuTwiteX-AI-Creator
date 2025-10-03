@@ -1,7 +1,6 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import type { Chat } from "@google/genai";
-import { createChatSession, getSystemInstructionTweet, getSystemInstructionThread, proofreadThread, generateImage, generateVideo, summarizeUrl, summarizeFileContent, regenerateTweet } from '../services/geminiService';
+import { createChatSession, getSystemInstructionTweet, getSystemInstructionThread, generateTweet, generateTweetThread, proofreadThread, generateImage, generateVideo, summarizeUrl, summarizeFileContent, regenerateTweet } from '../services/geminiService';
 import { CreateMode } from '../types';
 import type { Source, XUserProfile, EditableTweet, Draft, BrandVoiceProfile, ChatMessage } from '../types';
 import TweetPreview from './TweetPreview';
@@ -183,32 +182,65 @@ const ContentStudio: React.FC = () => {
     const steps = ['Redactando contenido', 'Puliendo el tono', 'Finalizando', '¡Listo!'];
     setGenerationStatus({ title, steps, currentStep: 0, error: null });
 
+    let sourceToUse: Source | undefined;
+    if (createMode === CreateMode.Link && linkUrl) {
+      sourceToUse = { web: { uri: linkUrl, title: 'External Link' } };
+    }
+    
+    let fileToUse: { mimeType: string, data: string } | undefined;
+    if (createMode === CreateMode.File && uploadedFile) {
+        try {
+            const base64Data = await fileToBase64(uploadedFile);
+            fileToUse = { mimeType: uploadedFile.type, data: base64Data };
+        } catch (error) {
+            console.error("Error reading file:", error);
+            setGenerationStatus(prev => prev ? { ...prev, error: "Failed to read the uploaded file." } : null);
+            setIsLoading(false);
+            return;
+        }
+    }
+
     const audienceToUse = audience.trim() || undefined;
     const toneToUse = tone === 'default' ? undefined : tone;
     const formatToUse = format === 'default' ? undefined : format;
     const keywordsToUse = keywords.trim() || undefined;
-    
-    const systemInstruction = isThread 
-        ? getSystemInstructionThread(audienceToUse, toneToUse, formatToUse, keywordsToUse, brandVoiceProfile || undefined)
-        : getSystemInstructionTweet(audienceToUse, toneToUse, formatToUse, keywordsToUse, brandVoiceProfile || undefined);
-        
-    const chat = createChatSession(systemInstruction, isThread);
-    setChatSession(chat);
-
-    let fullPrompt = prompt;
-    if (createMode === CreateMode.Link && linkUrl) {
-      fullPrompt = `Basado en la información del artículo en ${linkUrl}, escribe sobre: ${prompt}`;
-    }
 
     try {
-        setChatMessages([{ author: 'user', content: fullPrompt }]);
-        const response = await chat.sendMessage({ message: fullPrompt });
+        const results = isThread
+            ? await generateTweetThread(prompt, sourceToUse, audienceToUse, fileToUse, toneToUse, formatToUse, keywordsToUse, brandVoiceProfile || undefined)
+            : [await generateTweet(prompt, sourceToUse, audienceToUse, fileToUse, toneToUse, formatToUse, keywordsToUse, brandVoiceProfile || undefined)];
+        
         setGenerationStatus(prev => prev ? { ...prev, currentStep: 3 } : null);
-
-        const results = parseAIResponse(response.text, isThread);
 
         if (results.length > 0) {
             setTweets(results.map((content, i) => ({ id: `tweet-${i}`, content, media: null, isLoadingMedia: false, isCopied: false, isRegenerating: false })));
+            const systemInstruction = isThread 
+                ? getSystemInstructionThread(audienceToUse, toneToUse, formatToUse, keywordsToUse, brandVoiceProfile || undefined)
+                : getSystemInstructionTweet(audienceToUse, toneToUse, formatToUse, keywordsToUse, brandVoiceProfile || undefined);
+            
+            let fullPromptForHistory = prompt;
+            if (sourceToUse) {
+                fullPromptForHistory = `Based on the information from the article titled "${sourceToUse.web.title}" found at ${sourceToUse.web.uri}, write content about: ${prompt}`;
+            }
+
+            const fileParts = fileToUse 
+                ? [{ inlineData: { mimeType: fileToUse.mimeType, data: fileToUse.data } }] 
+                : [];
+            
+            const history = [
+                {
+                    role: 'user',
+                    parts: [{ text: fullPromptForHistory }, ...fileParts],
+                },
+                {
+                    role: 'model',
+                    parts: [{ text: isThread ? JSON.stringify({ thread: results }) : results[0] }],
+                },
+            ];
+
+            const chat = createChatSession(systemInstruction, isThread, history);
+            setChatSession(chat);
+            setChatMessages([{ author: 'user', content: prompt }]);
         } else {
              throw new Error("La IA devolvió una respuesta vacía.");
         }
@@ -220,7 +252,7 @@ const ContentStudio: React.FC = () => {
         setIsLoading(false);
         setTimeout(() => setGenerationStatus(null), 5000); 
     }
-  }, [prompt, createMode, linkUrl, audience, tone, format, keywords, brandVoiceProfile]);
+  }, [prompt, createMode, linkUrl, audience, uploadedFile, tone, format, keywords, brandVoiceProfile]);
   
   const handleSendRefinement = async (message: string) => {
     if (!chatSession) return;
@@ -236,10 +268,11 @@ const ContentStudio: React.FC = () => {
       const results = parseAIResponse(response.text, isThread);
 
       if (results.length > 0) {
-        setTweets(prev => results.map((content, i) => ({
-            ...(prev[i] || {}),
-            id: prev[i]?.id || `tweet-${i}`,
+        setTweets(results.map((content, i) => ({
+            id: `tweet-${Date.now()}-${i}`,
             content,
+            media: null,
+            isLoadingMedia: false,
             isCopied: false,
             isRegenerating: false,
         })));
@@ -587,7 +620,7 @@ const ContentStudio: React.FC = () => {
                              return (
                                  <div key={tweet.id} className="bg-bg-primary p-3 rounded-lg border border-border-primary">
                                      <p className="text-xs font-bold text-text-secondary mb-2">Tuit {index + 1}</p>
-                                     <p className="text-sm text-red-400 line-through mb-1">{original}</p>
+                                     <p className="text-sm text-danger line-through mb-1">{original}</p>
                                      <p className="text-sm text-success mb-2">{suggestion}</p>
                                      {!isAccepted && (
                                          <div className="text-right">
@@ -722,10 +755,10 @@ const ContentStudio: React.FC = () => {
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 my-4">
-        <button onClick={() => handleGenerate('tweet')} disabled={isLoading || !prompt.trim()} className="ai-button">
+        <button onClick={() => handleGenerate('tweet')} disabled={isLoading || !prompt.trim()} className="ai-button bg-accent-primary text-white">
             <SparklesIcon /> {isLoading ? 'Generando...' : 'Generar Tuit'}
         </button>
-        <button onClick={() => handleGenerate('thread')} disabled={isLoading || !prompt.trim()} className="ai-button">
+        <button onClick={() => handleGenerate('thread')} disabled={isLoading || !prompt.trim()} className="ai-button bg-accent-primary text-white">
             <SparklesIcon /> {isLoading ? 'Generando...' : 'Generar Hilo'}
         </button>
       </div>
@@ -748,9 +781,9 @@ const ContentStudio: React.FC = () => {
             ) : chatSession ? (
                 <div className="flex flex-col h-full">
                     <div className="flex justify-between items-center mb-2">
-                        <h3 className="text-lg font-bold text-text-primary">Refine Content</h3>
+                        <h3 className="text-lg font-bold text-text-primary">Refinar Contenido</h3>
                         <button onClick={handleStartNew} className="text-sm font-semibold text-accent-primary hover:underline">
-                            Start New Creation
+                            Empezar de Nuevo
                         </button>
                     </div>
                     <ChatHistory messages={chatMessages} onSendMessage={handleSendRefinement} isLoading={isChatLoading} />
@@ -801,7 +834,7 @@ const ContentStudio: React.FC = () => {
                         </div>
                     );
                 })}
-                 {tweets.length > 0 && tweets[0].content && (
+                 {tweets.length > 0 && tweets.some(t => t.content) && (
                     <button onClick={addTweetToThread} className="mt-4 text-accent-primary font-semibold hover:underline self-start">
                         + Añadir Tweet al Hilo
                     </button>
@@ -856,11 +889,27 @@ const ContentStudio: React.FC = () => {
       />
 
       <style>{`
-          .ai-button { display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.75rem; border-radius: 9999px; font-weight: bold; transition: all 0.2s; background-color: #3B82F6; color: white; text-align: center; white-space: nowrap; }
+          .ai-button { display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.75rem; border-radius: 9999px; font-weight: bold; transition: all 0.2s; text-align: center; white-space: nowrap; }
           .ai-button:hover:not(:disabled) { opacity: 0.9; }
           .ai-button:disabled { opacity: 0.5; cursor: not-allowed; }
-           .action-button { display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.5rem; border-radius: 0.5rem; font-weight: 600; font-size: 0.875rem; transition: all 0.2s; background-color: #F3F4F6; color: #374151; border: 1px solid #E5E7EB; }
-          .action-button:hover:not(:disabled) { background-color: #E5E7EB; color: #111827; }
+           .action-button {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 0.5rem;
+              padding: 0.5rem;
+              border-radius: 0.5rem;
+              font-weight: 600;
+              font-size: 0.875rem;
+              transition: all 0.2s;
+              background-color: #161B22; /* bg-secondary */
+              color: #E6EDF3; /* text-primary */
+              border: 1px solid #30363D; /* border-primary */
+          }
+          .action-button:hover:not(:disabled) {
+              background-color: #30363D; /* border-primary */
+              color: #E6EDF3; /* text-primary */
+          }
            .action-button:disabled { opacity: 0.5; cursor: not-allowed; }
           .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
           @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }

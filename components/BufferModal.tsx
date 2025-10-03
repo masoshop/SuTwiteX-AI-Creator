@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { getProfiles, createPost } from '../services/bufferService';
 import type { BufferProfile, EditableTweet } from '../types';
@@ -111,7 +112,7 @@ const BufferModal: React.FC<BufferModalProps> = ({ tweets, onClose, token, onSet
           placeholder="Enter your Access Token"
           className="w-full bg-bg-primary border border-border-primary rounded-lg p-3 focus:ring-2 focus:ring-accent-primary focus:shadow-glow-blue focus:outline-none transition"
         />
-        <button type="submit" disabled={!localToken} className="w-full mt-4 py-3 bg-accent-primary text-bg-primary rounded-full font-bold hover:opacity-90 transition disabled:opacity-50">
+        <button type="submit" disabled={!localToken} className="w-full mt-4 py-3 bg-accent-primary text-bg-secondary rounded-full font-bold hover:opacity-90 transition disabled:opacity-50">
           Save Token
         </button>
       </form>
@@ -147,7 +148,7 @@ const BufferModal: React.FC<BufferModalProps> = ({ tweets, onClose, token, onSet
                 </div>
             ))}
         </div>
-        <button onClick={onClose} className="w-full mt-2 py-2 bg-accent-primary text-bg-primary rounded-full font-bold hover:opacity-90 transition">
+        <button onClick={onClose} className="w-full mt-2 py-2 bg-accent-primary text-bg-secondary rounded-full font-bold hover:opacity-90 transition">
             Done
         </button>
      </div>
@@ -204,7 +205,7 @@ const BufferModal: React.FC<BufferModalProps> = ({ tweets, onClose, token, onSet
         <button 
           onClick={handlePost} 
           disabled={postStatus === 'loading' || selectedProfiles.length === 0}
-          className="w-full py-3 bg-accent-primary text-bg-primary rounded-full font-bold hover:opacity-90 transition disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2"
+          className="w-full py-3 bg-accent-primary text-bg-secondary rounded-full font-bold hover:opacity-90 transition disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2"
         >
           <BufferIcon className="h-5 w-5"/>
           {postStatus === 'loading' ? 'Sending to Buffer...' : 'Send to Buffer'}

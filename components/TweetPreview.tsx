@@ -11,7 +11,7 @@ import TrashIcon from './icons/TrashIcon';
 import SparklesIcon from './icons/SparklesIcon';
 import LoaderIcon from './icons/LoaderIcon';
 
-const MAX_CHARS = 280;
+const MAX_CHARS = 275;
 
 interface TweetPreviewProps {
   tweet: Tweet;
