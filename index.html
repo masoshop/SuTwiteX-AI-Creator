@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" sizes="any" type="image/svg+xml" href="data:image/svg+xml,%3Csvg viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='logo-bg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%234A267A' /%3E%3Cstop offset='100%25' stop-color='%232C1D44' /%3E%3C/linearGradient%3E%3ClinearGradient id='logo-x' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%233A8DFF' /%3E%3Cstop offset='100%25' stop-color='%23DD2A7B' /%3E%3C/linearGradient%3E%3CclipPath id='pen-clip'%3E%3Cpath d='M86.13 25.54L74.46 13.87C71.73 11.14 67.3 11.14 64.57 13.87L22.84 55.6C22.13 56.31 21.64 57.22 21.43 58.21L17.5 77.58C17.15 79.28 18.72 80.85 20.42 80.5L39.79 76.57C40.78 76.36 41.69 75.87 42.4 75.16L84.13 33.43C86.86 30.7 86.86 28.27 86.13 25.54Z' /%3E%3C/clipPath%3E%3C/defs%3E%3Crect width='100' height='100' rx='22' fill='url(%23logo-bg)'/%3E%3Cg clip-path='url(%23pen-clip)'%3E%3Cpath d='M25 75L75 25' stroke='url(%23logo-x)' stroke-width='28' stroke-linecap='round' /%3E%3Cpath d='M25 25L75 75' stroke='url(%23logo-x)' stroke-width='28' stroke-linecap='round' /%3E%3C/g%3E%3Cpath d='M86.13 25.54L74.46 13.87C71.73 11.14 67.3 11.14 64.57 13.87L22.84 55.6C22.13 56.31 21.64 57.22 21.43 58.21L17.5 77.58C17.15 79.28 18.72 80.85 20.42 80.5L39.79 76.57C40.78 76.36 41.69 75.87 42.4 75.16L84.13 33.43C86.86 30.7 86.86 28.27 86.13 25.54Z' stroke='rgba(255,255,255,0.1)' stroke-width='2'/%3E%3Cpath d='M68 17.5L82.5 32' stroke='rgba(255,255,255,0.15)' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TwixAi Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'bg-primary': '#1A0B2E',
+              'bg-secondary': '#2C1D44',
+              'accent-primary': '#3A8DFF',
+              'accent-secondary': '#DD2A7B',
+              'danger': '#A72608',
+              'text-primary': '#F0F2F5',
+              'text-secondary': '#A8A2B3',
+              'border-primary': '#403255',
+              'success': '#4CAF50',
+              'brand-bg-light': '#E9FFF9',
+              'brand-text-dark': '#20063B',
+            },
+            boxShadow: {
+              'glow-primary': '0 0 20px rgba(58, 141, 255, 0.5)',
+              'glow-secondary': '0 0 20px rgba(221, 42, 123, 0.5)',
+            }
+          },
+        },
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "recharts": "https://aistudiocdn.com/recharts@^3.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.20.0",
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "react": "https://aistudiocdn.com/react@^19.1.1"
+  }
+}
+</script>
+<style>
+  .z-negative {
+    z-index: -1;
+  }
+  
+  /* Global scrollbar styling to prevent layout shifts */
+  .overflow-y-auto, .overflow-auto {
+    scrollbar-gutter: stable;
+  }
+  
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent; 
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #4B5563; /* A neutral gray from the theme */
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #6B7280; /* A darker gray for hover */
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+      display: none;
+  }
+  .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+  }
+</style>
+</head>
+  <body class="text-text-primary bg-bg-primary">
+    <canvas id="blockchain-canvas" class="fixed top-0 left-0 w-full h-full z-negative"></canvas>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+    <script type="module">
+      const canvas = document.getElementById('blockchain-canvas');
+      const ctx = canvas.getContext('2d');
+
+      let width, height, particles, pulses;
+      const particleCount = 70;
+      const connectionDistance = 150;
+      
+      const particleColor = "#403255"; // border-primary
+      const pulseColor = "#3A8DFF";   // accent-primary
+      const connectionColor = "rgba(168, 162, 179, 0.25)"; // text-secondary with alpha
+
+      const mouse = {
+        x: undefined,
+        y: undefined,
+        radius: 120
+      };
+
+      window.addEventListener('mousemove', (event) => {
+        mouse.x = event.x;
+        mouse.y = event.y;
+      });
+
+      window.addEventListener('mouseout', () => {
+        mouse.x = undefined;
+        mouse.y = undefined;
+      });
+
+      function resize() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+      }
+
+      class Particle {
+        constructor() {
+          this.x = Math.random() * width;
+          this.y = Math.random() * height;
+          this.vx = (Math.random() - 0.5) * 0.3;
+          this.vy = (Math.random() - 0.5) * 0.3;
+          this.radius = Math.random() * 1.5 + 0.5;
+        }
+
+        update() {
+          // Repulsion from mouse
+          if (mouse.x !== undefined && mouse.y !== undefined) {
+              const dx = this.x - mouse.x;
+              const dy = this.y - mouse.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < mouse.radius) {
+                  const force = (mouse.radius - dist) / mouse.radius;
+                  this.vx += (dx / dist) * force * 0.15;
+                  this.vy += (dy / dist) * force * 0.15;
+              }
+          }
+
+          // Friction
+          this.vx *= 0.97;
+          this.vy *= 0.97;
+
+          // Add a little random motion to keep it alive
+          if (Math.abs(this.vx) < 0.05) this.vx += (Math.random() - 0.5) * 0.05;
+          if (Math.abs(this.vy) < 0.05) this.vy += (Math.random() - 0.5) * 0.05;
+
+          // Update position
+          this.x += this.vx;
+          this.y += this.vy;
+
+          // Wall collision
+          if (this.x < 0 || this.x > width) this.vx *= -1;
+          if (this.y < 0 || this.y > height) this.vy *= -1;
+        }
+
+        draw() {
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+          ctx.fillStyle = particleColor;
+          ctx.fill();
+        }
+      }
+
+      class Pulse {
+          constructor(source, dest) {
+              this.source = source;
+              this.dest = dest;
+              this.progress = 0;
+              this.speed = 0.015 + Math.random() * 0.01;
+          }
+
+          update() {
+              this.progress += this.speed;
+          }
+
+          draw() {
+              const x = this.source.x + (this.dest.x - this.source.x) * this.progress;
+              const y = this.source.y + (this.dest.y - this.source.y) * this.progress;
+              
+              ctx.beginPath();
+              ctx.arc(x, y, 2, 0, Math.PI * 2);
+              ctx.fillStyle = pulseColor;
+              ctx.shadowBlur = 5;
+              ctx.shadowColor = pulseColor;
+              ctx.fill();
+              ctx.shadowBlur = 0;
+          }
+      }
+
+      function init() {
+        resize();
+        particles = [];
+        pulses = [];
+        for (let i = 0; i < particleCount; i++) {
+          particles.push(new Particle());
+        }
+      }
+
+      function animate() {
+        ctx.clearRect(0, 0, width, height);
+
+        for (const particle of particles) {
+          particle.update();
+          particle.draw();
+        }
+
+        for (let i = 0; i < particles.length; i++) {
+          for (let j = i + 1; j < particles.length; j++) {
+            const dist = Math.hypot(particles[i].x - particles[j].x, particles[i].y - particles[j].y);
+            if (dist < connectionDistance) {
+              const opacity = 1 - dist / connectionDistance;
+              ctx.beginPath();
+              ctx.strokeStyle = `rgba(168, 162, 179, ${opacity * 0.25})`; // text-secondary
+              ctx.lineWidth = 0.5;
+              ctx.moveTo(particles[i].x, particles[i].y);
+              ctx.lineTo(particles[j].x, particles[j].y);
+              ctx.stroke();
+
+              // Occasionally create a pulse
+              if (Math.random() < 0.0005) {
+                  pulses.push(new Pulse(particles[i], particles[j]));
+              }
+            }
+          }
+        }
+
+        // Update and draw pulses
+        for (let i = pulses.length - 1; i >= 0; i--) {
+            const pulse = pulses[i];
+            pulse.update();
+            pulse.draw();
+            if (pulse.progress >= 1) {
+                pulses.splice(i, 1);
+            }
+        }
+        
+        requestAnimationFrame(animate);
+      }
+
+      window.addEventListener('resize', init);
+      init();
+      animate();
+    </script>
+  </body>
+</html>
